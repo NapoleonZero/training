@@ -28,7 +28,7 @@ def main():
     DRIVE_PATH = f'{sys.path[0]}/../datasets'
     DATASET = 'ccrl10M-depth1.csv.part*'
 
-    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, fraction=0.2, seed=SEED, debug=True)
+    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, fraction=0.05, seed=SEED, debug=True)
     model = CNN().to(device)
     print(model)
 
@@ -44,7 +44,7 @@ def main():
             train_p=0.7,
             val_p=0.15,
             test_p=0.15,
-            batch_size=1024,
+            batch_size=2**12,
             shuffle=True,
             device=device,
             verbose=1,

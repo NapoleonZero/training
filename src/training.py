@@ -46,12 +46,15 @@ class TrainingLoop():
                 shuffle=self.shuffle,
                 pin_memory=True,
                 num_workers=4,
-                prefetch_factor=4)
+                prefetch_factor=4,
+                persistent_workers=True)
         val_dl = DataLoader(val_ds,
-                batch_size=len(val_ds),
+                batch_size=self.batch_size,
                 shuffle=False,
                 pin_memory=True,
-                num_workers=0)
+                num_workers=4,
+                prefetch_factor=4,
+                persistent_workers=True)
         test_dl = DataLoader(test_ds,
                 batch_size=len(test_ds),
                 shuffle=False,
@@ -61,34 +64,40 @@ class TrainingLoop():
 
 
     def _train(self, epochs):
+        # Pytorch auto scaler for mixed precision training
+        scaler = torch.cuda.amp.GradScaler()
+
         num_batches = len(self.train_dataloader)
         self.model.train()
         for epoch in range(epochs):
             ################################### Initialization ########################################
-            kbar = pkbar.Kbar(target=num_batches, epoch=epoch, num_epochs=epochs, width=30, always_stateful=False)
+            kbar = pkbar.Kbar(target=num_batches, epoch=epoch, num_epochs=epochs, width=20, always_stateful=False)
             # By default, all metrics are averaged over time. If you don't want this behavior, you could either:
             # 1. Set always_stateful to True, or
             # 2. Set stateful_metrics=["loss", "rmse", "val_loss", "val_rmse"], Metrics in this list will be displayed as-is.
             # All others will be averaged by the progbar before display.
             ###########################################################################################
 
-            # running_loss = 0.0
             for batch, (X, aux, y) in enumerate(self.train_dataloader):
                 # TODO: generalize variable type
-                X = X.float().to(self.device)
-                y = y.float().to(self.device)
-                aux = aux.float().to(self.device)
+                X = X.float().to(self.device, non_blocking=True)
+                y = y.float().to(self.device, non_blocking=True)
+                aux = aux.float().to(self.device, non_blocking=True)
 
-                # Compute prediction error
-                pred = self.model(X, aux).squeeze()
-                loss = self.loss_fn(pred, y)
+                # Clear gradients
+                self.optimizer.zero_grad()
+
+                # Forward pass
+                with torch.cuda.amp.autocast():
+                    pred = self.model(X, aux).squeeze()
+                    loss = self.loss_fn(pred, y)
 
                 # Backpropagation
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
 
-                kbar.update(batch, values=[("loss", loss.item() )])
+                kbar.update(batch, values=[("loss", loss)])
 
             val_loss = self._test(self.val_dataloader)
 
@@ -103,12 +112,12 @@ class TrainingLoop():
         with torch.no_grad():
             for X, aux, y in dataloader:
                 # TODO: generalize variable type
-                X = X.float().to(self.device)
-                y = y.float().to(self.device)
-                aux = aux.float().to(self.device)
+                X = X.float().to(self.device, non_blocking=True)
+                y = y.float().to(self.device, non_blocking=True)
+                aux = aux.float().to(self.device, non_blocking=True)
 
                 pred = self.model(X, aux).squeeze()
-                test_loss += self.loss_fn(pred, y).item()
+                test_loss += self.loss_fn(pred, y)
         test_loss /= num_batches
         return test_loss
 
