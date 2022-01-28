@@ -47,6 +47,7 @@ def main():
             batch_size=2**12,
             shuffle=True,
             device=device,
+            mixed_precision=True,
             verbose=1,
             seed=SEED
             )

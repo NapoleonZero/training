@@ -2,6 +2,7 @@ import pkbar # progress bar for pytorch
 import torch
 from torch.utils.data import DataLoader
 from datasets.utils import split_dataset
+from contextlib import ExitStack
 
 class TrainingLoop():
     def __init__(self,
@@ -15,6 +16,7 @@ class TrainingLoop():
                  batch_size=1024,
                  shuffle=False,
                  device='cpu',
+                 mixed_precision=False,
                  verbose=1,
                  seed=42):
         self.model = model
@@ -27,6 +29,7 @@ class TrainingLoop():
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.device = device
+        self.mixed_precision = mixed_precision
         self.verbose = verbose
         self.seed = 42
 
@@ -65,7 +68,8 @@ class TrainingLoop():
 
     def _train(self, epochs):
         # Pytorch auto scaler for mixed precision training
-        scaler = torch.cuda.amp.GradScaler()
+        if self.mixed_precision:
+            scaler = torch.cuda.amp.GradScaler()
 
         num_batches = len(self.train_dataloader)
         self.model.train()
@@ -88,14 +92,20 @@ class TrainingLoop():
                 self.optimizer.zero_grad()
 
                 # Forward pass
-                with torch.cuda.amp.autocast():
+                with ExitStack() as stack:
+                    if self.mixed_precision:
+                        stack.enter_context(torch.cuda.amp.autocast())
                     pred = self.model(X, aux).squeeze()
                     loss = self.loss_fn(pred, y)
 
                 # Backpropagation
-                scaler.scale(loss).backward()
-                scaler.step(self.optimizer)
-                scaler.update()
+                if self.mixed_precision:
+                    scaler.scale(loss).backward()
+                    scaler.step(self.optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    self.optimizer.step()
 
                 kbar.update(batch, values=[("loss", loss)])
 
