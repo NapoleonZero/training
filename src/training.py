@@ -4,7 +4,19 @@ from torch.utils.data import DataLoader
 from datasets.utils import split_dataset
 
 class TrainingLoop():
-    def __init__(self, model, dataset, loss_fn, optimizer, train_p=0.7, val_p=0.15, test_p=0.15, batch_size=1024, device='cpu', verbose=1, seed=42):
+    def __init__(self,
+                 model,
+                 dataset,
+                 loss_fn,
+                 optimizer,
+                 train_p=0.7,
+                 val_p=0.15,
+                 test_p=0.15,
+                 batch_size=1024,
+                 shuffle=False,
+                 device='cpu',
+                 verbose=1,
+                 seed=42):
         self.model = model
         self.dataset = dataset
         self.loss_fn = loss_fn
@@ -13,6 +25,7 @@ class TrainingLoop():
         self.val_p = val_p
         self.test_p = test_p
         self.batch_size = batch_size
+        self.shuffle = shuffle
         self.device = device
         self.verbose = verbose
         self.seed = 42
@@ -30,7 +43,7 @@ class TrainingLoop():
                 seed=self.seed)
         train_dl = DataLoader(train_ds,
                 batch_size=self.batch_size,
-                shuffle=False,
+                shuffle=self.shuffle,
                 pin_memory=True,
                 num_workers=4,
                 prefetch_factor=4)
@@ -60,12 +73,14 @@ class TrainingLoop():
             ###########################################################################################
 
             # running_loss = 0.0
-            for batch, (X, y) in enumerate(self.train_dataloader):
+            for batch, (X, aux, y) in enumerate(self.train_dataloader):
                 # TODO: generalize variable type
-                X, y = X.float().to(self.device), y.float().to(self.device)
+                X = X.float().to(self.device)
+                y = y.float().to(self.device)
+                aux = aux.float().to(self.device)
 
                 # Compute prediction error
-                pred = self.model(X).squeeze()
+                pred = self.model(X, aux).squeeze()
                 loss = self.loss_fn(pred, y)
 
                 # Backpropagation
@@ -86,10 +101,13 @@ class TrainingLoop():
         self.model.eval()
         test_loss = 0.0
         with torch.no_grad():
-            for X, y in dataloader:
+            for X, aux, y in dataloader:
                 # TODO: generalize variable type
-                X, y = X.float().to(self.device), y.float().to(self.device)
-                pred = self.model(X).squeeze()
+                X = X.float().to(self.device)
+                y = y.float().to(self.device)
+                aux = aux.float().to(self.device)
+
+                pred = self.model(X, aux).squeeze()
                 test_loss += self.loss_fn(pred, y).item()
         test_loss /= num_batches
         return test_loss

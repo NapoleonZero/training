@@ -7,7 +7,6 @@ RUN pip install --upgrade wandb && \
     wandb login $WANDB_SECRET
 
 WORKDIR /root
-# RUN git clone 'https://github.com/crybot/NapoleonZero.git'
 RUN mkdir -p ./NapoleonZero
 COPY ./datasets/datasets ./NapoleonZero/datasets
 COPY ./src ./NapoleonZero/src
