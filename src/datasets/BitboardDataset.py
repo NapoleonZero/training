@@ -29,8 +29,12 @@ class BitboardDataset(Dataset):
         self.dataset = self._join_datasets(dir, filename)
         # If preload flag is set, load and preprocess dataset in memory
         if self.preload:
-            self.dataset, self.aux, self.scores = self._preprocess_ds(self.dataset)
+            features, self.aux, self.scores = self._preprocess_ds(self.dataset)
+            del self.dataset
             gc.collect()
+            self.dataset = features
+
+        gc.collect()
 
 
     def _join_datasets(self, dir, glob_str):
@@ -115,10 +119,10 @@ class BitboardDataset(Dataset):
         if self.debug:
             print(self.dataset.info(memory_usage='deep'))
 
-        np_dataset = ds.iloc[:, :-4].values
-        np_dataset = np.array([np.concatenate(bs).reshape(12, 8, 8) for bs in np_dataset])
-        aux = ds.iloc[:, -4:-1].values
-        scores = ds.iloc[:, -1].values
+        np_dataset = ds.iloc[:, :-4].copy().values
+        np_dataset = np.array([np.concatenate(bs).reshape(12, 8, 8).copy() for bs in np_dataset])
+        aux = ds.iloc[:, -4:-1].copy().values
+        scores = ds.iloc[:, -1].copy().values
         gc.collect()
 
         return np_dataset, aux, scores

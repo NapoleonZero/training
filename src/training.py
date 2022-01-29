@@ -72,7 +72,6 @@ class TrainingLoop():
             scaler = torch.cuda.amp.GradScaler()
 
         num_batches = len(self.train_dataloader)
-        self.model.train()
         for epoch in range(epochs):
             ################################### Initialization ########################################
             kbar = pkbar.Kbar(target=num_batches, epoch=epoch, num_epochs=epochs, width=20, always_stateful=False)
@@ -82,6 +81,7 @@ class TrainingLoop():
             # All others will be averaged by the progbar before display.
             ###########################################################################################
 
+            self.model.train()
             for batch, (X, aux, y) in enumerate(self.train_dataloader):
                 # TODO: generalize variable type
                 X = X.float().to(self.device, non_blocking=True, memory_format=torch.channels_last)
