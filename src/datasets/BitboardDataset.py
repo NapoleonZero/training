@@ -5,14 +5,12 @@ import glob
 import gc
 from torch.utils.data import Dataset
 
-
 def string_to_matrix(bitboard):
     return np.array([b for b in bitboard], dtype=np.uint8).reshape(8,8).copy()
 
 def string_to_array(bitboard):
     return np.array([b for b in bitboard], dtype=np.uint8)
 
-# class BitboardDataset(Dataset):
 class BitboardDataset(Dataset):
     """ Represents a generic Dataset of games
         TODO: implement transform and target_transform
@@ -31,7 +29,7 @@ class BitboardDataset(Dataset):
         self.dataset = self._join_datasets(dir, filename)
         # If preload flag is set, load and preprocess dataset in memory
         if self.preload:
-            self.dataset, self.scores = self._preprocess_ds(self.dataset)
+            self.dataset, self.aux, self.scores = self._preprocess_ds(self.dataset)
             gc.collect()
 
 
@@ -94,7 +92,10 @@ class BitboardDataset(Dataset):
 
     def _preprocess_ds(self, ds):
         """ Preprocess dataset in place.
-                Returns numpy tensor of 12x8x8 bitboards and numpy array of scores
+            Returns: 
+                - numpy tensor of 12x8x8 bitboards,
+                - numpy array of auxiliary inputs (side, ep, castling)
+                - numpy array of scores
         """
 
         ds[17] /= 100.0 # we divide by 100 so that score(pawn) = 1
@@ -116,9 +117,11 @@ class BitboardDataset(Dataset):
 
         np_dataset = ds.iloc[:, :-4].values
         np_dataset = np.array([np.concatenate(bs).reshape(12, 8, 8) for bs in np_dataset])
+        aux = ds.iloc[:, -4:-1].values
+        scores = ds.iloc[:, -1].values
         gc.collect()
 
-        return np_dataset, ds.iloc[:, -1].values
+        return np_dataset, aux, scores
 
     def _preprocess_row(self, row):
         row = row.copy()
@@ -146,8 +149,10 @@ class BitboardDataset(Dataset):
             # Reshape features into array of 12 bitboards of size 8x8
             features = entry[:-4] # drop side, ep, castling, score (TODO: find a way to use them)
             features = np.concatenate(features.values).reshape(12, 8, 8)
+            aux = entry[-4:-1] # side, ep, castling
         else: # already preloaded and processed
             features = self.dataset[idx]
             target = self.scores[idx]
+            aux = self.aux[idx]
 
-        return torch.from_numpy(features), target
+        return torch.from_numpy(features), torch.from_numpy(aux), target
