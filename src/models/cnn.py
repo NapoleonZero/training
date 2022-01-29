@@ -23,6 +23,7 @@ class Conv2dBlock(nn.Module):
                 self.in_channels, self.out_channels,
                 kernel_size=self.kernel_size,
                 stride=1,
+                bias=(not self.normalize),
                 padding=self.padding
                 )
         if self.normalize:
