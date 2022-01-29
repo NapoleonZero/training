@@ -49,14 +49,14 @@ class TrainingLoop():
                 shuffle=self.shuffle,
                 pin_memory=True,
                 num_workers=4,
-                prefetch_factor=4,
+                prefetch_factor=2,
                 persistent_workers=True)
         val_dl = DataLoader(val_ds,
                 batch_size=self.batch_size,
                 shuffle=False,
                 pin_memory=True,
                 num_workers=4,
-                prefetch_factor=4,
+                prefetch_factor=2,
                 persistent_workers=True)
         test_dl = DataLoader(test_ds,
                 batch_size=len(test_ds),
@@ -84,7 +84,7 @@ class TrainingLoop():
 
             for batch, (X, aux, y) in enumerate(self.train_dataloader):
                 # TODO: generalize variable type
-                X = X.float().to(self.device, non_blocking=True)
+                X = X.float().to(self.device, non_blocking=True, memory_format=torch.channels_last)
                 y = y.float().to(self.device, non_blocking=True)
                 aux = aux.float().to(self.device, non_blocking=True)
 
@@ -122,7 +122,7 @@ class TrainingLoop():
         with torch.no_grad():
             for X, aux, y in dataloader:
                 # TODO: generalize variable type
-                X = X.float().to(self.device, non_blocking=True)
+                X = X.float().to(self.device, non_blocking=True, memory_format=torch.channels_last)
                 y = y.float().to(self.device, non_blocking=True)
                 aux = aux.float().to(self.device, non_blocking=True)
 
