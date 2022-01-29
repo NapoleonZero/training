@@ -89,7 +89,7 @@ class TrainingLoop():
                 aux = aux.float().to(self.device, non_blocking=True)
 
                 # Clear gradients
-                self.optimizer.zero_grad()
+                self.optimizer.zero_grad(set_to_none=True)
 
                 # Forward pass
                 with ExitStack() as stack:
