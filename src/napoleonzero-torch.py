@@ -28,7 +28,7 @@ def main():
     DRIVE_PATH = f'{sys.path[0]}/../datasets'
     DATASET = 'ccrl10M-depth1.csv.part*'
 
-    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, fraction=0.5, seed=SEED, debug=True)
+    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
     # model = CNN().to(device, memory_format=torch.channels_last)
     model = BitboardTransformer().to(device, memory_format=torch.channels_last)
     print(model)
