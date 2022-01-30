@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 from datasets import BitboardDataset
-from models import CNN
+from models import CNN, BitboardTransformer
 from training import TrainingLoop
 import sys
 
@@ -28,8 +28,9 @@ def main():
     DRIVE_PATH = f'{sys.path[0]}/../datasets'
     DATASET = 'ccrl10M-depth1.csv.part*'
 
-    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, fraction=1.0, seed=SEED, debug=True)
-    model = CNN().to(device, memory_format=torch.channels_last)
+    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, fraction=0.5, seed=SEED, debug=True)
+    # model = CNN().to(device, memory_format=torch.channels_last)
+    model = BitboardTransformer().to(device, memory_format=torch.channels_last)
     print(model)
 
     loss_fn = nn.MSELoss()
@@ -43,7 +44,7 @@ def main():
             train_p=0.7,
             val_p=0.15,
             test_p=0.15,
-            batch_size=2**13,
+            batch_size=2**11,
             shuffle=True,
             device=device,
             mixed_precision=True,

@@ -10,6 +10,10 @@ RUN pip install --upgrade wandb && \
 WORKDIR /root
 RUN mkdir -p ./NapoleonZero
 COPY ./datasets/datasets ./NapoleonZero/datasets
+
+# TODO: move up
+RUN pip install einops
+
 COPY ./src ./NapoleonZero/src
 RUN chmod +x ./NapoleonZero/src/napoleonzero-torch.py
 
