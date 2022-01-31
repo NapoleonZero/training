@@ -61,7 +61,6 @@ class BitboardDataset(Dataset):
         if self.debug:
             print('Dataset initialized')
 
-
     def _join_datasets(self, dir, glob_str):
         dfs = []
         name_glob = dir + '/' + glob_str

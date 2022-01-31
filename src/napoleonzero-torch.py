@@ -34,7 +34,7 @@ def main():
     print(model)
 
     loss_fn = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), betas=(0.9, 0.999), weight_decay=0.0, lr=1e-3)
 
     training_loop = TrainingLoop(
             model,
@@ -44,7 +44,7 @@ def main():
             train_p=0.7,
             val_p=0.15,
             test_p=0.15,
-            batch_size=2**11,
+            batch_size=2**13,
             shuffle=True,
             device=device,
             mixed_precision=True,

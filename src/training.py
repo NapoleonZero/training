@@ -1,8 +1,38 @@
 import pkbar # progress bar for pytorch
 import torch
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import LinearLR, ReduceLROnPlateau
 from datasets.utils import split_dataset
 from contextlib import ExitStack
+
+class TrainingCallback():
+    """ Training Callback base class """
+    def __init__():
+        pass
+
+    def on_train_batch_start(self, state):
+        pass
+
+    def on_train_batch_end(self, state):
+        pass
+
+    def on_train_epoch_start(self, state):
+        pass
+
+    def on_train_epoch_end(self, state):
+        pass
+
+    def on_validation_batch_start(self, state):
+        pass
+
+    def on_validation_batch_end(self, state):
+        pass
+
+    def on_validation_start(self, state):
+        pass
+
+    def on_validation__end(self, state):
+        pass
 
 class TrainingLoop():
     def __init__(self,
@@ -17,6 +47,7 @@ class TrainingLoop():
                  shuffle=False,
                  device='cpu',
                  mixed_precision=False,
+                 callbacks=[],
                  verbose=1,
                  seed=42):
         self.model = model
@@ -31,6 +62,7 @@ class TrainingLoop():
         self.device = device
         self.mixed_precision = mixed_precision
         self.verbose = verbose
+        self.callbacks=callbacks
         self.seed = 42
 
         # TODO: maybe use an other class for evaluation?
@@ -71,10 +103,14 @@ class TrainingLoop():
         if self.mixed_precision:
             scaler = torch.cuda.amp.GradScaler()
 
+        total_steps = 1000
+        lr_warmup = LinearLR(self.optimizer, start_factor=0.001, total_iters=total_steps)
+        lr_decay = ReduceLROnPlateau(self.optimizer, mode='min', factor=0.5, patience=10)
+
         num_batches = len(self.train_dataloader)
         for epoch in range(epochs):
             ################################### Initialization ########################################
-            kbar = pkbar.Kbar(target=num_batches, epoch=epoch, num_epochs=epochs, width=20, always_stateful=False)
+            kbar = pkbar.Kbar(target=num_batches, epoch=epoch, num_epochs=epochs, width=20, always_stateful=False, stateful_metrics=['lr'])
             # By default, all metrics are averaged over time. If you don't want this behavior, you could either:
             # 1. Set always_stateful to True, or
             # 2. Set stateful_metrics=["loss", "rmse", "val_loss", "val_rmse"], Metrics in this list will be displayed as-is.
@@ -107,12 +143,17 @@ class TrainingLoop():
                     loss.backward()
                     self.optimizer.step()
 
-                kbar.update(batch, values=[("loss", loss)])
+                lr_warmup.step()
+                kbar.update(batch, values=[('loss', loss), ('lr', lr_warmup.get_last_lr()[0])])
+
 
             val_loss = self._test(self.val_dataloader)
 
+            if epoch * num_batches > total_steps:
+                lr_decay.step(val_loss)
+
             ################################ Add validation metrics ###################################
-            kbar.add(1, values=[("val_loss", val_loss)])
+            kbar.add(1, values=[('val_loss', val_loss)])
             ###########################################################################################
 
     def _test(self, dataloader):
