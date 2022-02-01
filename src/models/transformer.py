@@ -139,20 +139,20 @@ class ViT(nn.Module):
 
 
 class BitboardTransformer(nn.Module):
-    def __init__(self):
+    def __init__(self, patch_size=2, dim=64, depth=12, heads=32, mlp_dim=256, dropout=0.1, emb_dropout=0.0):
         super(BitboardTransformer, self).__init__()
         self.vit = ViT(
                     image_size=8,
-                    patch_size=4,
+                    patch_size=patch_size,
                     num_classes=1,
-                    dim=64,
-                    depth=12,
-                    heads=32,
-                    mlp_dim=256,
+                    dim=dim,
+                    depth=depth,
+                    heads=heads,
+                    mlp_dim=mlp_dim,
                     channels=12,
                     pool='mean',
-                    dropout=0.1,
-                    emb_dropout=0.0
+                    dropout=dropout,
+                    emb_dropout=emb_dropout
                     )
 
     def forward(self, x, aux):

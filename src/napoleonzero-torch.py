@@ -30,7 +30,16 @@ def main():
 
     dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
     # model = CNN().to(device, memory_format=torch.channels_last)
-    model = BitboardTransformer().to(device, memory_format=torch.channels_last)
+    patch_size = 4
+    model = BitboardTransformer(
+                patch_size=patch_size,
+                dim=(patch_size**2 * 16),
+                depth=10,
+                heads=16,
+                mlp_dim=256,
+                dropout=0.0,
+                emb_dropout=0.0
+            ).to(device, memory_format=torch.channels_last)
     print(model)
 
     loss_fn = nn.MSELoss()
@@ -44,7 +53,7 @@ def main():
             train_p=0.7,
             val_p=0.15,
             test_p=0.15,
-            batch_size=2**13,
+            batch_size=2**12,
             shuffle=True,
             device=device,
             mixed_precision=True,
@@ -52,7 +61,7 @@ def main():
             seed=SEED
             )
 
-    training_loop.run(epochs=100)
+    training_loop.run(epochs=200)
 
 if __name__ == '__main__':
     main()

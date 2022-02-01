@@ -176,6 +176,16 @@ class TrainingLoop():
         self._train(epochs)
         return self.model
 
+    def clear(self):
+        del self.train_dataloader
+        del self.val_dataloader
+        del self.test_dataloader
+        self.train_dataloader, self.val_dataloader, self.test_dataloader = self._make_dataloaders(
+                self.dataset,
+                self.train_p,
+                self.val_p,
+                self.test_p)
+
     # TODO: maybe use an other class for evaluation?
     def evaluate(self):
         pass

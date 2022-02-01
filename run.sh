@@ -6,6 +6,7 @@ docker run -it \
   --gpus all \
   --runtime=nvidia \
   --ipc=host \
+  -p 8888:8888 \
   --env CUBLAS_WORKSPACE_CONFIG=:4096:8 \
   training \
   $@
