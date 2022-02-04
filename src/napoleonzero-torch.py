@@ -8,6 +8,7 @@ from torch import nn
 from datasets import BitboardDataset
 from models import CNN, BitboardTransformer
 from training import TrainingLoop
+from callbacks import TrainingCallback, ProgressbarCallback, LRSchedulerCallback
 import sys
 
 def set_random_state(seed):
@@ -32,8 +33,8 @@ def main():
     DRIVE_PATH = f'{sys.path[0]}/../datasets'
     DATASET = 'ccrl10M-depth1.csv.part*'
 
-    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
-    # model = CNN().to(device, memory_format=torch.channels_last)
+    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=False, fraction=0.02, seed=SEED, debug=True)
+
     patch_size = 4
     model = BitboardTransformer(
                 patch_size=patch_size,
@@ -41,7 +42,7 @@ def main():
                 depth=8,
                 heads=16,
                 mlp_dim=256,
-                dropout=0.05,
+                dropout=0.10,
                 emb_dropout=0.0
             ).to(device, memory_format=torch.channels_last)
     print(model)
@@ -50,6 +51,7 @@ def main():
 
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.RAdam(model.parameters(), betas=(0.9, 0.999), weight_decay=0.0, lr=1e-3)
+    epochs = 200
 
     training_loop = TrainingLoop(
             model,
@@ -59,15 +61,19 @@ def main():
             train_p=0.95,
             val_p=0.025,
             test_p=0.025,
-            batch_size=2**12,
+            batch_size=2**8,
             shuffle=True,
             device=device,
             mixed_precision=True,
             verbose=1,
-            seed=SEED
+            seed=SEED,
+            callbacks=[
+                LRSchedulerCallback(optimizer, warmup_steps=1000),
+                ProgressbarCallback(epochs=epochs, width=20)
+                ]
             )
 
-    training_loop.run(epochs=200)
+    training_loop.run(epochs=epochs)
 
 if __name__ == '__main__':
     main()
