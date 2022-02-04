@@ -49,7 +49,7 @@ def main():
 
 
     loss_fn = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), betas=(0.9, 0.999), weight_decay=0.0, lr=1e-3)
+    optimizer = torch.optim.RAdam(model.parameters(), betas=(0.9, 0.999), weight_decay=0.0, lr=1e-3)
 
     training_loop = TrainingLoop(
             model,
