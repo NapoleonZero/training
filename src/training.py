@@ -65,12 +65,14 @@ class TrainingLoop():
         self.callbacks=callbacks
         self.seed = 42
 
+    def _init_dataloaders(self):
         # TODO: maybe use an other class for evaluation?
         self.train_dataloader, self.val_dataloader, self.test_dataloader = self._make_dataloaders(
                 self.dataset,
                 self.train_p,
                 self.val_p,
                 self.test_p)
+
 
     def _make_dataloaders(self, dataset, train_p, val_p, test_p):
         train_ds, val_ds, test_ds = split_dataset(dataset,
@@ -99,6 +101,8 @@ class TrainingLoop():
 
 
     def _train(self, epochs):
+        self._init_dataloaders()
+
         # Pytorch auto scaler for mixed precision training
         if self.mixed_precision:
             scaler = torch.cuda.amp.GradScaler()
@@ -180,11 +184,6 @@ class TrainingLoop():
         del self.train_dataloader
         del self.val_dataloader
         del self.test_dataloader
-        self.train_dataloader, self.val_dataloader, self.test_dataloader = self._make_dataloaders(
-                self.dataset,
-                self.train_p,
-                self.val_p,
-                self.test_p)
 
     # TODO: maybe use an other class for evaluation?
     def evaluate(self):

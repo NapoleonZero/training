@@ -17,6 +17,10 @@ def set_random_state(seed):
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms(True)
 
+def params_count(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
 def main():
     SEED = 42
     set_random_state(SEED)
@@ -33,14 +37,16 @@ def main():
     patch_size = 4
     model = BitboardTransformer(
                 patch_size=patch_size,
-                dim=(patch_size**2 * 16),
-                depth=10,
+                dim=(patch_size**2 * 8),
+                depth=8,
                 heads=16,
                 mlp_dim=256,
-                dropout=0.0,
+                dropout=0.05,
                 emb_dropout=0.0
             ).to(device, memory_format=torch.channels_last)
     print(model)
+    print(f'Number of parameters: {params_count(model)}')
+
 
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), betas=(0.9, 0.999), weight_decay=0.0, lr=1e-3)
@@ -50,9 +56,9 @@ def main():
             dataset,
             loss_fn,
             optimizer,
-            train_p=0.7,
-            val_p=0.15,
-            test_p=0.15,
+            train_p=0.95,
+            val_p=0.025,
+            test_p=0.025,
             batch_size=2**12,
             shuffle=True,
             device=device,

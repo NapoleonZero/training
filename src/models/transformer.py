@@ -4,78 +4,6 @@ from torch import nn
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
-# helpers
-
-def pair(t):
-    return t if isinstance(t, tuple) else (t, t)
-
-# classes
-
-class PreNorm(nn.Module):
-    def __init__(self, dim, fn):
-        super().__init__()
-        self.norm = nn.LayerNorm(dim)
-        self.fn = fn
-    def forward(self, x, **kwargs):
-        return self.fn(self.norm(x), **kwargs)
-
-class FeedForward(nn.Module):
-    def __init__(self, dim, hidden_dim, dropout = 0.):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, dim),
-            nn.Dropout(dropout)
-        )
-    def forward(self, x):
-        return self.net(x)
-
-class Attention(nn.Module):
-    def __init__(self, dim, heads = 8, dim_head = 64, dropout = 0.):
-        super().__init__()
-        inner_dim = dim_head *  heads
-        project_out = not (heads == 1 and dim_head == dim)
-
-        self.heads = heads
-        self.scale = dim_head ** -0.5
-
-        self.attend = nn.Softmax(dim = -1)
-        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias = False)
-
-        self.to_out = nn.Sequential(
-            nn.Linear(inner_dim, dim),
-            nn.Dropout(dropout)
-        ) if project_out else nn.Identity()
-
-    def forward(self, x):
-        qkv = self.to_qkv(x).chunk(3, dim = -1)
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv)
-
-        dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
-
-        attn = self.attend(dots)
-
-        out = torch.matmul(attn, v)
-        out = rearrange(out, 'b h n d -> b n (h d)')
-        return self.to_out(out)
-
-class Transformer(nn.Module):
-    def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0.):
-        super().__init__()
-        self.layers = nn.ModuleList([])
-        for _ in range(depth):
-            self.layers.append(nn.ModuleList([
-                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout)),
-                PreNorm(dim, FeedForward(dim, mlp_dim, dropout = dropout))
-            ]))
-    def forward(self, x):
-        for attn, ff in self.layers:
-            x = attn(x) + x
-            x = ff(x) + x
-        return x
-
 class ViT(nn.Module):
     def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, pool = 'cls', channels = 3, dim_head = 64, dropout = 0., emb_dropout = 0.):
         super().__init__()
@@ -93,11 +21,10 @@ class ViT(nn.Module):
             nn.Linear(patch_dim, dim),
         )
 
-        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 1, dim))
-        self.cls_token = nn.Parameter(torch.randn(1, 1, dim))
+        self.to_aux_embedding = nn.Linear(3, 3 * dim)
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 3, dim))
         self.dropout = nn.Dropout(emb_dropout)
 
-        # self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout)
         self.transformer = nn.TransformerEncoder(
                 nn.TransformerEncoderLayer(
                     d_model=dim,
@@ -116,17 +43,21 @@ class ViT(nn.Module):
         self.to_latent = nn.Identity()
 
         self.mlp_head = nn.Sequential(
-                nn.LayerNorm(dim + 3),
-                nn.Linear(dim + 3, num_classes)
+                nn.LayerNorm(dim),
+                nn.Linear(dim, num_classes)
         )
 
     def forward(self, img, aux):
         x = self.to_patch_embedding(img)
         b, n, _ = x.shape
 
-        cls_tokens = repeat(self.cls_token, '() n d -> b n d', b = b)
-        x = torch.cat((cls_tokens, x), dim=1)
-        x += self.pos_embedding[:, :(n + 1)]
+        aux = self.to_aux_embedding(aux)
+        aux = aux[:, None, :] # Add dummy (n) dimension
+        aux = aux.chunk(3, dim = -1) # Split the last dimension in 3 to have embeddings for side, ep, castling
+        x = torch.cat((aux[0], x), dim=1)
+        x = torch.cat((aux[1], x), dim=1)
+        x = torch.cat((aux[2], x), dim=1)
+        x += self.pos_embedding[:, :(n + 3)]
         x = self.dropout(x)
 
         x = self.transformer(x)
@@ -134,28 +65,4 @@ class ViT(nn.Module):
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
 
         x = self.to_latent(x)
-        x = torch.cat([x, aux], 1)
         return self.mlp_head(x)
-
-
-class BitboardTransformer(nn.Module):
-    def __init__(self, patch_size=2, dim=64, depth=12, heads=32, mlp_dim=256, dropout=0.1, emb_dropout=0.0):
-        super(BitboardTransformer, self).__init__()
-        self.vit = ViT(
-                    image_size=8,
-                    patch_size=patch_size,
-                    num_classes=1,
-                    dim=dim,
-                    depth=depth,
-                    heads=heads,
-                    mlp_dim=mlp_dim,
-                    channels=12,
-                    pool='mean',
-                    dropout=dropout,
-                    emb_dropout=emb_dropout
-                    )
-
-    def forward(self, x, aux):
-        return self.vit(x, aux)
-
-

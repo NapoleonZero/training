@@ -13,11 +13,11 @@ COPY ./datasets/datasets ./NapoleonZero/datasets
 
 # TODO: move up
 RUN pip install einops
+RUN pip install jupyterlab
 
 COPY ./src ./NapoleonZero/src
 RUN chmod +x ./NapoleonZero/src/napoleonzero-torch.py
 
-RUN pip install jupyterlab
 
 # CMD ["python3", "./NapoleonZero/src/napoleonzero-torch.py"]
 WORKDIR /root/NapoleonZero/src
