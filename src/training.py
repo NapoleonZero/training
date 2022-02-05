@@ -1,6 +1,6 @@
-import pkbar # progress bar for pytorch
 import torch
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import LinearLR, ReduceLROnPlateau
 from datasets.utils import split_dataset
 from contextlib import ExitStack
 
@@ -17,6 +17,8 @@ class TrainingLoop():
                  shuffle=False,
                  device='cpu',
                  mixed_precision=False,
+                 callbacks=[],
+                 metrics=[],
                  verbose=1,
                  seed=42):
         self.model = model
@@ -31,8 +33,19 @@ class TrainingLoop():
         self.device = device
         self.mixed_precision = mixed_precision
         self.verbose = verbose
+        self.callbacks = callbacks
+        self.metrics = dict.fromkeys(metrics)
         self.seed = 42
 
+        # Internal training state
+        self.state = {}
+
+    def _clear_state(self):
+        """ Clear internal training state """
+        self.state['epoch'] = None
+        self.state['lr'] = None
+
+    def _init_dataloaders(self):
         # TODO: maybe use an other class for evaluation?
         self.train_dataloader, self.val_dataloader, self.test_dataloader = self._make_dataloaders(
                 self.dataset,
@@ -65,24 +78,25 @@ class TrainingLoop():
                 num_workers=0)
         return train_dl, val_dl, test_dl
 
-
     def _train(self, epochs):
+        self._clear_state()
+        self._init_dataloaders()
+        num_batches = len(self.train_dataloader)
+        self.update_state('batches', num_batches)
+        
+        self.on_train_start()
+
         # Pytorch auto scaler for mixed precision training
         if self.mixed_precision:
             scaler = torch.cuda.amp.GradScaler()
 
-        num_batches = len(self.train_dataloader)
-        self.model.train()
         for epoch in range(epochs):
-            ################################### Initialization ########################################
-            kbar = pkbar.Kbar(target=num_batches, epoch=epoch, num_epochs=epochs, width=20, always_stateful=False)
-            # By default, all metrics are averaged over time. If you don't want this behavior, you could either:
-            # 1. Set always_stateful to True, or
-            # 2. Set stateful_metrics=["loss", "rmse", "val_loss", "val_rmse"], Metrics in this list will be displayed as-is.
-            # All others will be averaged by the progbar before display.
-            ###########################################################################################
+            self.update_state('epoch', epoch)
+            self.on_train_epoch_start()
 
+            self.model.train()
             for batch, (X, aux, y) in enumerate(self.train_dataloader):
+                self.update_state('batch', batch)
                 # TODO: generalize variable type
                 X = X.float().to(self.device, non_blocking=True, memory_format=torch.channels_last)
                 y = y.float().to(self.device, non_blocking=True)
@@ -107,13 +121,14 @@ class TrainingLoop():
                     loss.backward()
                     self.optimizer.step()
 
-                kbar.update(batch, values=[("loss", loss)])
+                self.update_metric('loss', loss)
+                self.on_train_batch_end()
 
             val_loss = self._test(self.val_dataloader)
+            self.update_metric('val_loss', val_loss)
+            self.on_validation_end()
 
-            ################################ Add validation metrics ###################################
-            kbar.add(1, values=[("val_loss", val_loss)])
-            ###########################################################################################
+        self.on_train_end()
 
     def _test(self, dataloader):
         num_batches = len(dataloader)
@@ -134,6 +149,62 @@ class TrainingLoop():
     def run(self, epochs=10):
         self._train(epochs)
         return self.model
+
+    def clear(self):
+        del self.train_dataloader
+        del self.val_dataloader
+        del self.test_dataloader
+        self._clear_state()
+
+    def get_last_metric(self, metric):
+        """ Get last computed metric """
+        return self.metrics.get(metric, None)
+
+    def get_last_metrics(self):
+        return self.metrics.copy()
+
+    def update_metric(self, metric, value):
+        self.metrics[metric] = value
+
+    def update_state(self, key, value):
+        self.state[key] = value
+
+    def get_state(self, key):
+        return self.state.get(key, None)
+
+    def get_states(self):
+        return self.state.copy()
+
+    """ Callback hooks """
+    def on_train_start(self):
+        for c in self.callbacks: c.on_train_start(self)
+
+    def on_train_end(self):
+        for c in self.callbacks: c.on_train_end(self)
+
+    def on_train_batch_start(self):
+        for c in self.callbacks: c.on_train_batch_start(self)
+
+    def on_train_batch_end(self):
+        for c in self.callbacks: c.on_train_batch_end(self)
+
+    def on_train_epoch_start(self):
+        for c in self.callbacks: c.on_train_epoch_start(self)
+
+    def on_train_epoch_end(self):
+        for c in self.callbacks: c.on_train_epoch_end(self)
+
+    def on_validation_batch_start(self):
+        for c in self.callbacks: c.on_validation_batch_start(self)
+
+    def on_validation_batch_end(self):
+        for c in self.callbacks: c.on_validation_batch_end(self)
+
+    def on_validation_start(self):
+        for c in self.callbacks: c.on_validation_start(self)
+
+    def on_validation_end(self):
+        for c in self.callbacks: c.on_validation_end(self)
 
     # TODO: maybe use an other class for evaluation?
     def evaluate(self):
