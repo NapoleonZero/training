@@ -21,6 +21,9 @@ def set_random_state(seed):
 def params_count(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+def print_summary(model):
+    print(model)
+    print(f'Number of parameters: {params_count(model)}')
 
 def main():
     SEED = 42
@@ -33,7 +36,7 @@ def main():
     DRIVE_PATH = f'{sys.path[0]}/../datasets'
     DATASET = 'ccrl10M-depth1.csv.part*'
 
-    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=False, fraction=0.02, seed=SEED, debug=True)
+    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
 
     patch_size = 4
     model = BitboardTransformer(
@@ -42,12 +45,10 @@ def main():
                 depth=8,
                 heads=16,
                 mlp_dim=256,
-                dropout=0.10,
+                dropout=0.2,
                 emb_dropout=0.0
             ).to(device, memory_format=torch.channels_last)
-    print(model)
-    print(f'Number of parameters: {params_count(model)}')
-
+    print_summary(model)
 
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.RAdam(model.parameters(), betas=(0.9, 0.999), weight_decay=0.0, lr=1e-3)
@@ -61,7 +62,7 @@ def main():
             train_p=0.95,
             val_p=0.025,
             test_p=0.025,
-            batch_size=2**8,
+            batch_size=2**12,
             shuffle=True,
             device=device,
             mixed_precision=True,

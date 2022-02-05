@@ -154,7 +154,7 @@ class TrainingLoop():
         del self.train_dataloader
         del self.val_dataloader
         del self.test_dataloader
-        self._clear_stae()
+        self._clear_state()
 
     def get_last_metric(self, metric):
         """ Get last computed metric """

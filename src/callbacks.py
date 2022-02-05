@@ -89,7 +89,7 @@ class LRSchedulerCallback(TrainingCallback):
         self.optimizer = optimizer
         self.warmup_steps = warmup_steps
         self.lr_warmup = LinearLR(self.optimizer, start_factor=0.001, total_iters=self.warmup_steps)
-        self.lr_decay = ReduceLROnPlateau(self.optimizer, mode='min', factor=0.5, patience=10)
+        self.lr_decay = ReduceLROnPlateau(self.optimizer, mode='min', factor=0.5, patience=5)
     
     def on_train_start(self, state):
         super().on_train_start(state)
@@ -102,7 +102,7 @@ class LRSchedulerCallback(TrainingCallback):
 
     def on_validation_end(self, state):
         super().on_validation_end(state)
-        val_loss = state.get_state('val_loss')
-        if val_loss:
-            self.lr_decay.step(state.val_loss)
-            state.update_state('lr', self.lr_decay.get_last_lr()[0])
+        val_loss = state.get_last_metric('val_loss')
+        if val_loss is not None:
+            self.lr_decay.step(val_loss)
+            state.update_state('lr', self.optimizer.param_groups[0]['lr'])
