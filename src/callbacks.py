@@ -128,7 +128,7 @@ class WandbCallback(TrainingCallback):
                 entity=self.entity,
                 config=self.config,
                 tags=self.tags,
-                save_code=self.save_code
+                save_code=self.save_code,
                 reinit=True)
 
     def on_train_end(self, state):
@@ -148,10 +148,10 @@ class WandbCallback(TrainingCallback):
         batch = state.get_state('batch')
         if self.log and self.batch_frequency and batch \
                     and batch % self.batch_frequency == 0:
-            wandb.log(state.get_states() | state.get_last_metrics(), commit=True)
+            wandb.log({**state.get_states(), **state.get_last_metrics()}, commit=True)
 
     def on_validation_end(self, state):
         super().on_validation_end(state)
         if self.log:
-            wandb.log(state.get_states() | state.get_last_metrics(), commit=True)
+            wandb.log({**state.get_states(), **state.get_last_metrics()}, commit=True)
 

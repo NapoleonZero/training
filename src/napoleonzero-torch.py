@@ -40,40 +40,70 @@ def main():
     dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
 
     patch_size = 4
+    # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
+    config = {
+            'seed': SEED,
+            'device': device,
+            'dataset': DATASET,
+            'dataset-size': len(dataset),
+            'vit-patch-size': patch_size,
+            'vit-dim': (patch_size**2 * 8),
+            'vit-depth': 8,
+            'vit-heads': 16,
+            'vit-mlp-dim': 256,
+            'vit-dropout': 0.2,
+            'vit-emb-dropout': 0.0,
+            'weight-decay': 0.0,
+            'learning-rate': 1e-3,
+            'lr-warmup-steps': 1000,
+            'adam-betas': (0.9, 0.999),
+            'epochs': 200,
+            'train-split-perc': 0.95,
+            'val-split-perc': 0.025,
+            'test-split-perc': 0.025,
+            'batch-size': 2**12,
+            'shuffle': True,
+            'mixed-precision': True,
+            }
+
     model = BitboardTransformer(
-                patch_size=patch_size,
-                dim=(patch_size**2 * 8),
-                depth=8,
-                heads=16,
-                mlp_dim=256,
-                dropout=0.2,
-                emb_dropout=0.0
+                patch_size=config['vit-patch-size'],
+                dim=config['vit-dim'],
+                depth=config['vit-depth'],
+                heads=config['vit-heads'],
+                mlp_dim=config['vit-mlp-dim'],
+                dropout=config['vit-dropout'],
+                emb_dropout=config['vit-emb-dropout']
             ).to(device, memory_format=torch.channels_last)
     print_summary(model)
 
     loss_fn = nn.MSELoss()
-    optimizer = torch.optim.RAdam(model.parameters(), betas=(0.9, 0.999), weight_decay=0.0, lr=1e-3)
-    epochs = 200
+    optimizer = torch.optim.RAdam(
+            model.parameters(),
+            betas=config['adam-betas'],
+            weight_decay=config['weight-decay'],
+            lr=config['learning-rate']
+            )
 
-    # TODO: compile configuration dictionary
-    config = { }
+    epochs = config['epochs']
 
+    #TODO: maybe pass config as parameter
     training_loop = TrainingLoop(
             model,
             dataset,
             loss_fn,
             optimizer,
-            train_p=0.95,
-            val_p=0.025,
-            test_p=0.025,
-            batch_size=2**12,
-            shuffle=True,
+            train_p=config['train-split-perc'],
+            val_p=config['val-split-perc'],
+            test_p=config['test-split-perc'],
+            batch_size=config['batch-size'],
+            shuffle=config['shuffle'],
             device=device,
-            mixed_precision=True,
+            mixed_precision=config['mixed-precision'],
             verbose=1,
             seed=SEED,
             callbacks=[
-                LRSchedulerCallback(optimizer, warmup_steps=1000),
+                LRSchedulerCallback(optimizer, warmup_steps=config['lr-warmup-steps']),
                 ProgressbarCallback(epochs=epochs, width=20),
                 WandbCallback(
                     project_name='napoleon-zero-pytorch',
