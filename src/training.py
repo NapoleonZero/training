@@ -160,6 +160,9 @@ class TrainingLoop():
         """ Get last computed metric """
         return self.metrics.get(metric, None)
 
+    def get_last_metrics(self):
+        return self.metrics.copy()
+
     def update_metric(self, metric, value):
         self.metrics[metric] = value
 
@@ -168,6 +171,9 @@ class TrainingLoop():
 
     def get_state(self, key):
         return self.state.get(key, None)
+
+    def get_states(self):
+        return self.state.copy()
 
     """ Callback hooks """
     def on_train_start(self):

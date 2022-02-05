@@ -9,6 +9,7 @@ from datasets import BitboardDataset
 from models import CNN, BitboardTransformer
 from training import TrainingLoop
 from callbacks import TrainingCallback, ProgressbarCallback, LRSchedulerCallback
+from callbacks import WandbCallback
 import sys
 
 def set_random_state(seed):
@@ -54,6 +55,9 @@ def main():
     optimizer = torch.optim.RAdam(model.parameters(), betas=(0.9, 0.999), weight_decay=0.0, lr=1e-3)
     epochs = 200
 
+    # TODO: compile configuration dictionary
+    config = { }
+
     training_loop = TrainingLoop(
             model,
             dataset,
@@ -70,7 +74,13 @@ def main():
             seed=SEED,
             callbacks=[
                 LRSchedulerCallback(optimizer, warmup_steps=1000),
-                ProgressbarCallback(epochs=epochs, width=20)
+                ProgressbarCallback(epochs=epochs, width=20),
+                WandbCallback(
+                    project_name='napoleon-zero-pytorch',
+                    entity='marco-pampaloni',
+                    config=config,
+                    tags=['initial-test-wandb']
+                    )
                 ]
             )
 

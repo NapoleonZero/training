@@ -1,4 +1,5 @@
 import pkbar # progress bar for pytorch
+import wandb
 import torch
 from torch import nn
 from torch.optim.lr_scheduler import LinearLR, ReduceLROnPlateau
@@ -106,3 +107,51 @@ class LRSchedulerCallback(TrainingCallback):
         if val_loss is not None:
             self.lr_decay.step(val_loss)
             state.update_state('lr', self.optimizer.param_groups[0]['lr'])
+
+
+class WandbCallback(TrainingCallback):
+    def __init__(self, project_name, entity, config=None, tags=None, save_code=True, log=True, batch_frequency=None):
+        super().__init__()
+        self.project_name = project_name
+        self.entity = entity
+        self.tags = tags
+        self.config = config
+        self.save_code = save_code
+        self.log = log
+        self.batch_frequency = batch_frequency
+
+    def on_train_start(self, state):
+        super().on_train_start(state)
+        # Create a new wandb run
+        self.run = wandb.init(
+                project=self.project_name,
+                entity=self.entity,
+                config=self.config,
+                tags=self.tags,
+                save_code=self.save_code
+                reinit=True)
+
+    def on_train_end(self, state):
+        super().on_train_end(state)
+        # Stop the current run
+        if self.run:
+            self.run.finish()
+
+    def on_train_epoch_end(self, state):
+        super().on_train_epoch_end(state)
+        # We can probably do everything after validation
+        # if self.log:
+        #     wandb.log(state.get_states() | state.get_last_metrics(), commit=True)
+
+    def on_train_batch_end(self, state):
+        super().on_train_batch_end(state)
+        batch = state.get_state('batch')
+        if self.log and self.batch_frequency and batch \
+                    and batch % self.batch_frequency == 0:
+            wandb.log(state.get_states() | state.get_last_metrics(), commit=True)
+
+    def on_validation_end(self, state):
+        super().on_validation_end(state)
+        if self.log:
+            wandb.log(state.get_states() | state.get_last_metrics(), commit=True)
+
