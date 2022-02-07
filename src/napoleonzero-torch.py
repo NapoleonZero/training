@@ -56,6 +56,10 @@ def main():
             'weight-decay': 0.0,
             'learning-rate': 1e-3,
             'lr-warmup-steps': 1000,
+            'lr-cosine-annealing': True,
+            'lr-cosine-tmax': 50,
+            'lr-restart': False,
+            'min-lr': 1e-6,
             'adam-betas': (0.9, 0.999),
             'epochs': 200,
             'train-split-perc': 0.95,
@@ -103,13 +107,22 @@ def main():
             verbose=1,
             seed=SEED,
             callbacks=[
-                LRSchedulerCallback(optimizer, warmup_steps=config['lr-warmup-steps']),
-                ProgressbarCallback(epochs=epochs, width=20),
+                LRSchedulerCallback(
+                    optimizer,
+                    warmup_steps=config['lr-warmup-steps'],
+                    cosine_annealing=config['lr-cosine-annealing'],
+                    cosine_tmax=config['lr-cosine-tmax'],
+                    restart=config['lr-restart'],
+                    min_lr=config['min-lr']
+                    ),
+                ProgressbarCallback(
+                    epochs=epochs,
+                    width=20),
                 WandbCallback(
                     project_name='napoleon-zero-pytorch',
                     entity='marco-pampaloni',
                     config=config,
-                    tags=['initial-test-wandb']
+                    tags=['initial-test-wandb', 'test-annealing']
                     )
                 ]
             )

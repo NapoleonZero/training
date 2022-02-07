@@ -124,6 +124,7 @@ class TrainingLoop():
                 self.update_metric('loss', loss)
                 self.on_train_batch_end()
 
+            # TODO: log training loss as the average among batches
             val_loss = self._test(self.val_dataloader)
             self.update_metric('val_loss', val_loss)
             self.on_validation_end()
