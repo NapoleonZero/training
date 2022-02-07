@@ -91,11 +91,11 @@ class TrainingLoop():
             scaler = torch.cuda.amp.GradScaler()
 
         for epoch in range(epochs):
-            self.on_train_epoch_start()
+            self.on_train_epoch_start(epoch)
 
             self.model.train()
             for batch, (X, aux, y) in enumerate(self.train_dataloader):
-                self.update_state('batch', batch)
+                self.on_train_batch_start(batch)
                 # TODO: generalize variable type
                 X = X.float().to(self.device, non_blocking=True, memory_format=torch.channels_last)
                 y = y.float().to(self.device, non_blocking=True)
@@ -183,14 +183,15 @@ class TrainingLoop():
     def on_train_end(self):
         for c in self.callbacks: c.on_train_end(self)
 
-    def on_train_batch_start(self):
+    def on_train_batch_start(self, batch_num):
+        self.update_state('batch', batch_num)
         for c in self.callbacks: c.on_train_batch_start(self)
 
     def on_train_batch_end(self, batch_num, batch_loss):
         # Update current batch loss
         self.update_metric('loss', batch_loss)
         # Current mean loss (default 0 if None)
-        mean_loss = self.get_last_metrics('mean_loss', 0.0)
+        mean_loss = self.get_last_metric('mean_loss', 0.0)
         # Running mean loss update
         mean_loss = mean_loss + (batch_loss - mean_loss)/(batch_num + 1)
         self.update_metric('mean_loss', mean_loss)
