@@ -42,8 +42,8 @@ class TrainingLoop():
 
     def _clear_state(self):
         """ Clear internal training state """
-        self.state['epoch'] = None
-        self.state['lr'] = None
+        self.state = {}
+        self.metrics = {}
 
     def _init_dataloaders(self):
         # TODO: maybe use an other class for evaluation?
@@ -165,7 +165,16 @@ class TrainingLoop():
         return self.metrics.copy()
 
     def update_metric(self, metric, value):
+        """ Update the given metric with the current value
+            The method automatically tracks min and max values of the metric
+        """
+        min_v = self.get_last_metric(f'min-{metric}')
+        max_v = self.get_last_metric(f'max-{metric}')
         self.metrics[metric] = value
+        if min_v is None or value < min_v:
+            self.metrics[f'min-{metric}'] = value
+        if max_v is None or value > max_v:
+            self.metrics[f'max-{metric}'] = value
 
     def update_state(self, key, value):
         self.state[key] = value
