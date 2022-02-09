@@ -39,7 +39,7 @@ def main():
 
     dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
 
-    patch_size = 4
+    patch_size = 2
     # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
     config = {
             'seed': SEED,
@@ -47,8 +47,8 @@ def main():
             'dataset': DATASET,
             'dataset-size': len(dataset),
             'vit-patch-size': patch_size,
-            'vit-dim': (patch_size**2 * 8),
-            'vit-depth': 8,
+            'vit-dim': (patch_size**2 * 4),
+            'vit-depth': 4,
             'vit-heads': 16,
             'vit-mlp-dim': 256,
             'vit-dropout': 0.2,
@@ -57,7 +57,7 @@ def main():
             'learning-rate': 1e-3,
             'lr-warmup-steps': 1000,
             'lr-cosine-annealing': True,
-            'lr-cosine-tmax': 50,
+            'lr-cosine-tmax': 200,
             'lr-restart': False,
             'min-lr': 1e-6,
             'adam-betas': (0.9, 0.999),
