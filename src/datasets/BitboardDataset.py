@@ -19,6 +19,7 @@ class BitboardDataset(Dataset):
     def __init__(self,
                  dir,
                  filename,
+                 from_dump=False,
                  glob=True,
                  preload=True,
                  preload_chunks=True,
@@ -28,6 +29,7 @@ class BitboardDataset(Dataset):
                  seed=42,
                  debug=False):
         self.dir = dir
+        self.from_dump = from_dump
         self.glob = glob
         self.preload = preload
         self.preload_chunks = preload_chunks
@@ -37,29 +39,48 @@ class BitboardDataset(Dataset):
         self.seed = seed
         self.debug = debug
 
-        # Load and process dataset leveraging multiprocessing in order to 
-        # avoid memory retention: create a pool with only one process
-        # and replace it after each task submitted so that the used memory
-        # is freed
-        with Pool(processes=1, maxtasksperchild=1) as pool:
-            # Load dataset from disk
-            result = pool.apply_async(self._join_datasets, (dir, filename,))
-            ds = result.get()
-            gc.collect()
-
-            # If preload flag is set, load and preprocess dataset in memory
-            if self.preload:
-                result = pool.apply_async(self._preprocess_ds, (ds,))
-                # features, aux, scores = result.get()
-                self.dataset, self.aux, self.scores = result.get()
-
-                del result
-                del ds
+        # Load already preprocessed dataset from a numpy binary file
+        if self.from_dump:
+            self.dataset, self.aux, self.scores = self._load_dump(dir, filename)
+        else:
+            # Load and process dataset leveraging multiprocessing in order to 
+            # avoid memory retention: create a pool with only one process
+            # and replace it after each task submitted so that the used memory
+            # is freed
+            with Pool(processes=1, maxtasksperchild=1) as pool:
+                # Load dataset from disk
+                result = pool.apply_async(self._join_datasets, (dir, filename,))
+                ds = result.get()
                 gc.collect()
+
+                # If preload flag is set, load and preprocess dataset in memory
+                if self.preload:
+                    result = pool.apply_async(self._preprocess_ds, (ds,))
+                    # features, aux, scores = result.get()
+                    self.dataset, self.aux, self.scores = result.get()
+
+                    del result
+                    del ds
+                    gc.collect()
 
         gc.collect()
         if self.debug:
             print('Dataset initialized')
+            print(f'Bitboards size: {self.dataset.nbytes / 2**30}G')
+            print(f'Scores size: {self.scores.nbytes / 2**30}G')
+            print(f'Aux size: {self.aux.nbytes / 2**30}G')
+
+    def _load_dump(self, dir, npz):
+        """ 
+        Load already preprocessed dataset from a numpy binary file
+        """
+        with np.load(f'{dir}/{npz}') as nps:
+            bitboards = nps['bitboards'].copy()
+            aux = nps['aux'].copy()
+            scores = nps['scores'].copy()
+        gc.collect()
+
+        return bitboards, aux, scores
 
     def _join_datasets(self, dir, glob_str):
         dfs = []

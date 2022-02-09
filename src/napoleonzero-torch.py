@@ -35,9 +35,10 @@ def main():
     print(f"Using {device} device")
 
     DRIVE_PATH = f'{sys.path[0]}/../datasets'
-    DATASET = 'ccrl10M-depth1.csv.part*'
+    DATASET = 'ccrl5M-depth1.npz'
 
-    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
+    # dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
+    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, preload=True, from_dump=True, seed=SEED, debug=True)
 
     patch_size = 2
     # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
@@ -47,7 +48,7 @@ def main():
             'dataset': DATASET,
             'dataset-size': len(dataset),
             'vit-patch-size': patch_size,
-            'vit-dim': (patch_size**2 * 4),
+            'vit-dim': (patch_size**2 * 16),
             'vit-depth': 4,
             'vit-heads': 16,
             'vit-mlp-dim': 256,

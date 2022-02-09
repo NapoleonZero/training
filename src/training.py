@@ -63,14 +63,14 @@ class TrainingLoop():
                 pin_memory=True,
                 num_workers=4,
                 prefetch_factor=2,
-                persistent_workers=True)
+                persistent_workers=False)
         val_dl = DataLoader(val_ds,
                 batch_size=self.batch_size,
                 shuffle=False,
                 pin_memory=True,
                 num_workers=4,
                 prefetch_factor=2,
-                persistent_workers=True)
+                persistent_workers=False)
         test_dl = DataLoader(test_ds,
                 batch_size=len(test_ds),
                 shuffle=False,
