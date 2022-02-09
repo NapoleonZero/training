@@ -42,8 +42,8 @@ class TrainingLoop():
 
     def _clear_state(self):
         """ Clear internal training state """
-        self.state['epoch'] = None
-        self.state['lr'] = None
+        self.state = {}
+        self.metrics = {}
 
     def _init_dataloaders(self):
         # TODO: maybe use an other class for evaluation?
@@ -63,14 +63,14 @@ class TrainingLoop():
                 pin_memory=True,
                 num_workers=4,
                 prefetch_factor=2,
-                persistent_workers=True)
+                persistent_workers=False)
         val_dl = DataLoader(val_ds,
                 batch_size=self.batch_size,
                 shuffle=False,
                 pin_memory=True,
                 num_workers=4,
                 prefetch_factor=2,
-                persistent_workers=True)
+                persistent_workers=False)
         test_dl = DataLoader(test_ds,
                 batch_size=len(test_ds),
                 shuffle=False,
@@ -91,12 +91,11 @@ class TrainingLoop():
             scaler = torch.cuda.amp.GradScaler()
 
         for epoch in range(epochs):
-            self.update_state('epoch', epoch)
-            self.on_train_epoch_start()
+            self.on_train_epoch_start(epoch)
 
             self.model.train()
             for batch, (X, aux, y) in enumerate(self.train_dataloader):
-                self.update_state('batch', batch)
+                self.on_train_batch_start(batch)
                 # TODO: generalize variable type
                 X = X.float().to(self.device, non_blocking=True, memory_format=torch.channels_last)
                 y = y.float().to(self.device, non_blocking=True)
@@ -121,12 +120,14 @@ class TrainingLoop():
                     loss.backward()
                     self.optimizer.step()
 
-                self.update_metric('loss', loss)
-                self.on_train_batch_end()
+                self.on_train_batch_end(batch, loss)
 
+
+            # TODO: log training loss as the average among batches
             val_loss = self._test(self.val_dataloader)
             self.update_metric('val_loss', val_loss)
             self.on_validation_end()
+            self.on_train_epoch_end(epoch)
 
         self.on_train_end()
 
@@ -156,21 +157,30 @@ class TrainingLoop():
         del self.test_dataloader
         self._clear_state()
 
-    def get_last_metric(self, metric):
+    def get_last_metric(self, metric, default=None):
         """ Get last computed metric """
-        return self.metrics.get(metric, None)
+        return self.metrics.get(metric, default)
 
     def get_last_metrics(self):
         return self.metrics.copy()
 
     def update_metric(self, metric, value):
+        """ Update the given metric with the current value
+            The method automatically tracks min and max values of the metric
+        """
+        min_v = self.get_last_metric(f'min-{metric}')
+        max_v = self.get_last_metric(f'max-{metric}')
         self.metrics[metric] = value
+        if min_v is None or value < min_v:
+            self.metrics[f'min-{metric}'] = value
+        if max_v is None or value > max_v:
+            self.metrics[f'max-{metric}'] = value
 
     def update_state(self, key, value):
         self.state[key] = value
 
-    def get_state(self, key):
-        return self.state.get(key, None)
+    def get_state(self, key, default=None):
+        return self.state.get(key, default)
 
     def get_states(self):
         return self.state.copy()
@@ -182,16 +192,26 @@ class TrainingLoop():
     def on_train_end(self):
         for c in self.callbacks: c.on_train_end(self)
 
-    def on_train_batch_start(self):
+    def on_train_batch_start(self, batch_num):
+        self.update_state('batch', batch_num)
         for c in self.callbacks: c.on_train_batch_start(self)
 
-    def on_train_batch_end(self):
+    def on_train_batch_end(self, batch_num, batch_loss):
+        # Update current batch loss
+        self.update_metric('loss', batch_loss)
+        # Current mean loss (default 0 if None)
+        mean_loss = self.get_last_metric('mean_loss', 0.0)
+        # Running mean loss update
+        mean_loss = mean_loss + (batch_loss - mean_loss)/(batch_num + 1)
+        self.update_metric('mean_loss', mean_loss)
         for c in self.callbacks: c.on_train_batch_end(self)
 
-    def on_train_epoch_start(self):
+    def on_train_epoch_start(self, epoch_num):
+        self.update_metric('mean_loss', 0.0)
+        self.update_state('epoch', epoch_num)
         for c in self.callbacks: c.on_train_epoch_start(self)
 
-    def on_train_epoch_end(self):
+    def on_train_epoch_end(self, epoch_num):
         for c in self.callbacks: c.on_train_epoch_end(self)
 
     def on_validation_batch_start(self):

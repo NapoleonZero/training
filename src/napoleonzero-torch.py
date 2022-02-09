@@ -35,11 +35,12 @@ def main():
     print(f"Using {device} device")
 
     DRIVE_PATH = f'{sys.path[0]}/../datasets'
-    DATASET = 'ccrl10M-depth1.csv.part*'
+    DATASET = 'ccrl5M-depth1.npz'
 
-    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
+    # dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
+    dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, preload=True, from_dump=True, seed=SEED, debug=True)
 
-    patch_size = 4
+    patch_size = 2
     # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
     config = {
             'seed': SEED,
@@ -47,8 +48,8 @@ def main():
             'dataset': DATASET,
             'dataset-size': len(dataset),
             'vit-patch-size': patch_size,
-            'vit-dim': (patch_size**2 * 8),
-            'vit-depth': 8,
+            'vit-dim': (patch_size**2 * 16),
+            'vit-depth': 4,
             'vit-heads': 16,
             'vit-mlp-dim': 256,
             'vit-dropout': 0.2,
@@ -56,6 +57,10 @@ def main():
             'weight-decay': 0.0,
             'learning-rate': 1e-3,
             'lr-warmup-steps': 1000,
+            'lr-cosine-annealing': True,
+            'lr-cosine-tmax': 200,
+            'lr-restart': False,
+            'min-lr': 1e-6,
             'adam-betas': (0.9, 0.999),
             'epochs': 200,
             'train-split-perc': 0.95,
@@ -103,13 +108,22 @@ def main():
             verbose=1,
             seed=SEED,
             callbacks=[
-                LRSchedulerCallback(optimizer, warmup_steps=config['lr-warmup-steps']),
-                ProgressbarCallback(epochs=epochs, width=20),
+                LRSchedulerCallback(
+                    optimizer,
+                    warmup_steps=config['lr-warmup-steps'],
+                    cosine_annealing=config['lr-cosine-annealing'],
+                    cosine_tmax=config['lr-cosine-tmax'],
+                    restart=config['lr-restart'],
+                    min_lr=config['min-lr']
+                    ),
+                ProgressbarCallback(
+                    epochs=epochs,
+                    width=20),
                 WandbCallback(
                     project_name='napoleon-zero-pytorch',
                     entity='marco-pampaloni',
                     config=config,
-                    tags=['initial-test-wandb']
+                    tags=['initial-test-wandb', 'test-annealing']
                     )
                 ]
             )
