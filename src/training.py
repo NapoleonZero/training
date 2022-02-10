@@ -37,8 +37,8 @@ class TrainingLoop():
         self.metrics = dict.fromkeys(metrics)
         self.seed = 42
 
-        # Internal training state
-        self.state = {}
+        self._clear_state()
+        self._init_dataloaders()
 
     def _clear_state(self):
         """ Clear internal training state """
@@ -79,8 +79,9 @@ class TrainingLoop():
         return train_dl, val_dl, test_dl
 
     def _train(self, epochs):
-        self._clear_state()
-        self._init_dataloaders()
+        if self.train_dataloader is None or self.val_dataloader is None:
+            self._init_dataloaders()
+
         num_batches = len(self.train_dataloader)
         self.update_state('batches', num_batches)
         
@@ -156,6 +157,29 @@ class TrainingLoop():
         del self.val_dataloader
         del self.test_dataloader
         self._clear_state()
+    
+    def dump_state(self):
+        """ Produces a snapshot dictionary containing all information
+            to restore the current state of the TrainingLoop sometime in the
+            future.
+        """
+        return {
+                'model_state_dict': self.model.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'training_loop_state_dict': self.get_states(),
+                'training_loop_metrics': self.get_last_metrics(),
+                # 'train_dataloader': self.train_dataloader,
+                # 'val_dataloader': self.val_dataloader,
+                # 'test_dataloader': self.test_dataloader
+                }
+
+    def load_state(self, dump):
+        """ Loads a TrainingLoop snapshot produced by a call to dump_state. """
+        self.model.load_state_dict(dump['model_state_dict'])
+        self.optimizer.load_state_dict(dump['optimizer_state_dict'])
+        self.state = dump['training_loop_state_dict']
+        self.metrics = dump['training_loop_metrics']
+
 
     def get_last_metric(self, metric, default=None):
         """ Get last computed metric """

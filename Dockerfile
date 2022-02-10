@@ -18,6 +18,7 @@ RUN cat ./NapoleonZero/datasets/ccrl5M-depth1.npz.part* > \
 
 COPY ./src ./NapoleonZero/src
 RUN chmod +x ./NapoleonZero/src/napoleonzero-torch.py
+RUN mkdir -p ./NapoleonZero/artifacts
 
 CMD ["python3", "./NapoleonZero/src/napoleonzero-torch.py"]
 # WORKDIR /root/NapoleonZero/src

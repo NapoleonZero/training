@@ -1,6 +1,8 @@
+import os
 import pkbar # progress bar for pytorch
 import wandb
 import torch
+import numpy as np
 from torch import nn
 from torch.optim.lr_scheduler import LinearLR, ReduceLROnPlateau
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
@@ -181,4 +183,56 @@ class WandbCallback(TrainingCallback):
         super().on_validation_end(state)
         if self.log:
             wandb.log({**state.get_states(), **state.get_last_metrics()}, commit=True)
+
+
+class CheckpointCallback(TrainingCallback):
+    def __init__(self, path, save_best=True, metric='val_loss', frequency=None, mode='min', sync_wandb=False):
+        super().__init__()
+        self.path = path
+        self.save_best = save_best
+        self.metric = metric
+        self.frequency = frequency
+        self.mode = mode
+        self.sync_wandb = sync_wandb
+
+        assert path, 'path must not be None'
+        assert save_best or frequency, 'Either one between save_best and frequency must be provided'
+        assert not (save_best and frequency), 'Only one between save_best and frequency can be provided'
+        assert (not save_best) or (mode == 'min' or mode == 'max'), "If save_best is True, then mode can either be 'min' or 'max'"
+        assert (not save_best) or metric, 'If save_best = True, then a metric must be provided'
+
+        if self.save_best:
+            self.best = np.inf if mode == 'min' else -np.inf
+            self.default = self.best
+
+        if self.save_best and self.mode:
+            self.minimize = mode == 'min'
+
+    def on_train_start(self, state):
+        super().on_train_start(state)
+
+    def on_train_end(self, state):
+        super().on_train_end(state)
+
+    def on_train_epoch_end(self, state):
+        super().on_train_epoch_end(state)
+        epoch = state.get_state('epoch', 0)
+
+        if self.frequency and epoch % self.frequency == 0:
+            self._save_checkpoint(state)
+
+        if self.save_best:
+            current = state.get_last_metric(self.metric, self.default)
+            if (self.minimize and current < self.best) or \
+               (not self.minimize and current > self.best):
+                   self.best = current
+                   self._save_checkpoint(state)
+
+    def _save_checkpoint(self, state):
+        """ Save the current state checkpoint to the specified self.path """
+        # Save dump to disk
+        torch.save(state.dump_state(), self.path)
+        # Sync file with wandb
+        if self.sync_wandb:
+            wandb.save(self.path, base_path=os.path.dirname(self.path))
 

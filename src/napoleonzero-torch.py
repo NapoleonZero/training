@@ -9,7 +9,7 @@ from datasets import BitboardDataset
 from models import CNN, BitboardTransformer
 from training import TrainingLoop
 from callbacks import TrainingCallback, ProgressbarCallback, LRSchedulerCallback
-from callbacks import WandbCallback
+from callbacks import WandbCallback, CheckpointCallback
 import sys
 
 def set_random_state(seed):
@@ -35,6 +35,7 @@ def main():
     print(f"Using {device} device")
 
     DRIVE_PATH = f'{sys.path[0]}/../datasets'
+    ARTIFACTS_PATH = f'{sys.path[0]}/../artifacts'
     DATASET = 'ccrl5M-depth1.npz'
 
     # dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
@@ -123,7 +124,13 @@ def main():
                     project_name='napoleon-zero-pytorch',
                     entity='marco-pampaloni',
                     config=config,
-                    tags=['initial-test-wandb', 'test-annealing']
+                    tags=['initial-test-wandb', 'test-checkpoint']
+                    ),
+                CheckpointCallback(
+                    path=ARTIFACTS_PATH + '/checkpoint.pt',
+                    save_best=True,
+                    metric='val_loss',
+                    sync_wandb=True
                     )
                 ]
             )
