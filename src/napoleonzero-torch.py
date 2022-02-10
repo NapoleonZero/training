@@ -137,9 +137,9 @@ def main():
             )
 
     training_loop.run(epochs=epochs)
+
     # checkpoint = torch.load(ARTIFACTS_PATH + '/checkpoint.pt')
     # training_loop.load_state(checkpoint)
-
     # training_loop.run(epochs=epochs)
 
 if __name__ == '__main__':

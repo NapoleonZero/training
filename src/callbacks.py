@@ -69,7 +69,9 @@ class ProgressbarCallback(TrainingCallback):
 
     def on_train_epoch_start(self, state):
         super().on_train_epoch_start(state)
-        epoch = state.get_state('epoch')
+
+        # pkbar expects epochs starting from zero
+        epoch = state.get_state('epoch', 1) - 1
         num_batches = state.get_state('batches')
         ################################### Initialization ########################################
         if epoch is not None and num_batches is not None:
@@ -158,7 +160,7 @@ class LRSchedulerCallback(TrainingCallback):
             batches = state.get_state('batches')
             epoch = state.get_state('epoch')
             # Only when warmup is over
-            if epoch is not None and batches and (epoch + 1) * batches > self.warmup_steps:
+            if epoch is not None and batches and epoch * batches > self.warmup_steps:
                 # With restarts
                 if self.lr_cosine is None and self.restart:
                     self.lr_cosine = CosineAnnealingWarmRestarts(self.optimizer, self.cosine_tmax, 1, eta_min=self.min_lr)
@@ -203,6 +205,7 @@ class WandbCallback(TrainingCallback):
                 project=self.project_name,
                 entity=self.entity,
                 config=self.config,
+                resume='must' if self.run_id else None,
                 tags=self.tags,
                 save_code=self.save_code,
                 reinit=True)
@@ -274,7 +277,7 @@ class CheckpointCallback(TrainingCallback):
 
     def on_train_epoch_end(self, state):
         super().on_train_epoch_end(state)
-        epoch = state.get_state('epoch', 0)
+        epoch = state.get_state('epoch', 1)
         output = False
 
         if self.frequency and epoch % self.frequency == 0:

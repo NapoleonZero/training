@@ -91,7 +91,7 @@ class TrainingLoop():
         if self.mixed_precision:
             scaler = torch.cuda.amp.GradScaler()
 
-        initial_epoch = self.get_state('epoch', -1) + 1
+        initial_epoch = self.get_state('epoch', 1)
         for epoch in range(initial_epoch, initial_epoch + epochs):
             self.on_train_epoch_start(epoch)
 
@@ -240,6 +240,9 @@ class TrainingLoop():
         for c in self.callbacks: c.on_train_epoch_start(self)
 
     def on_train_epoch_end(self, epoch_num):
+        # setting epoch + 1 on epoch end let's is necessary for cases in which
+        # the training stopped mid-epoch
+        self.update_state('epoch', epoch_num + 1)
         for c in self.callbacks: c.on_train_epoch_end(self)
 
     def on_validation_batch_start(self):
