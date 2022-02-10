@@ -186,7 +186,7 @@ class WandbCallback(TrainingCallback):
 
 
 class CheckpointCallback(TrainingCallback):
-    def __init__(self, path, save_best=True, metric='val_loss', frequency=None, mode='min', sync_wandb=False):
+    def __init__(self, path, save_best=True, metric='val_loss', frequency=None, mode='min', sync_wandb=False, debug=False):
         super().__init__()
         self.path = path
         self.save_best = save_best
@@ -194,6 +194,7 @@ class CheckpointCallback(TrainingCallback):
         self.frequency = frequency
         self.mode = mode
         self.sync_wandb = sync_wandb
+        self.debug = debug
 
         assert path, 'path must not be None'
         assert save_best or frequency, 'Either one between save_best and frequency must be provided'
@@ -217,9 +218,11 @@ class CheckpointCallback(TrainingCallback):
     def on_train_epoch_end(self, state):
         super().on_train_epoch_end(state)
         epoch = state.get_state('epoch', 0)
+        output = False
 
         if self.frequency and epoch % self.frequency == 0:
             self._save_checkpoint(state)
+            output = True
 
         if self.save_best:
             current = state.get_last_metric(self.metric, self.default)
@@ -227,6 +230,9 @@ class CheckpointCallback(TrainingCallback):
                (not self.minimize and current > self.best):
                    self.best = current
                    self._save_checkpoint(state)
+                   output = True
+        if self.debug and output:
+            print('Saving model checkpoint')
 
     def _save_checkpoint(self, state):
         """ Save the current state checkpoint to the specified self.path """

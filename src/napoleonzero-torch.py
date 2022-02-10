@@ -130,7 +130,8 @@ def main():
                     path=ARTIFACTS_PATH + '/checkpoint.pt',
                     save_best=True,
                     metric='val_loss',
-                    sync_wandb=True
+                    sync_wandb=True,
+                    debug=True
                     )
                 ]
             )
