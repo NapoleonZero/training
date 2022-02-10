@@ -91,7 +91,8 @@ class TrainingLoop():
         if self.mixed_precision:
             scaler = torch.cuda.amp.GradScaler()
 
-        for epoch in range(epochs):
+        initial_epoch = self.get_state('epoch', -1) + 1
+        for epoch in range(initial_epoch, initial_epoch + epochs):
             self.on_train_epoch_start(epoch)
 
             self.model.train()
@@ -168,6 +169,7 @@ class TrainingLoop():
                 'optimizer_state_dict': self.optimizer.state_dict(),
                 'training_loop_state_dict': self.get_states(),
                 'training_loop_metrics': self.get_last_metrics(),
+                'callbacks_state_dict': [c.state_dict() for c in self.callbacks],
                 # 'train_dataloader': self.train_dataloader,
                 # 'val_dataloader': self.val_dataloader,
                 # 'test_dataloader': self.test_dataloader
@@ -180,6 +182,8 @@ class TrainingLoop():
         self.state = dump['training_loop_state_dict']
         self.metrics = dump['training_loop_metrics']
 
+        for i, d in enumerate(dump['callbacks_state_dict']):
+            self.callbacks[i].load_state_dict(d)
 
     def get_last_metric(self, metric, default=None):
         """ Get last computed metric """

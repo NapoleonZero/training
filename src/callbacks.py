@@ -7,12 +7,21 @@ from torch import nn
 from torch.optim.lr_scheduler import LinearLR, ReduceLROnPlateau
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from abc import ABC, abstractmethod
 from training import TrainingLoop
 
-class TrainingCallback():
+class TrainingCallback(ABC):
     """ Training Callback base class """
     def __init__(self):
         return
+    
+    @abstractmethod
+    def state_dict(self):
+        pass
+
+    @abstractmethod
+    def load_state_dict(self, state_dict):
+        pass
 
     def on_train_start(self, state):
         return
@@ -51,6 +60,12 @@ class ProgressbarCallback(TrainingCallback):
         super().__init__()
         self.epochs = epochs
         self.width = width
+
+    def state_dict(self):
+        return None
+
+    def load_state_dict(self, state_dict):
+        pass
 
     def on_train_epoch_start(self, state):
         super().on_train_epoch_start(state)
@@ -103,6 +118,27 @@ class LRSchedulerCallback(TrainingCallback):
 
         if self.cosine_tmax is None and self.cosine_annealing:
             self.cosine_tmax = 50
+
+    def state_dict(self):
+        state_dict = {}
+        state_dict.update({
+            'lr_warmup_state_dict': self.lr_warmup.state_dict(),
+            'lr_decay_state_dict': self.lr_decay.state_dict()
+            })
+
+        if self.lr_cosine:
+            state_dict.update({
+                'lr_cosine_state_dict': self.lr_cosine.state_dict()
+                })
+
+        return state_dict
+
+    def load_state_dict(self, state_dict):
+        self.lr_warmup.load_state_dict(state_dict['lr_warmup_state_dict'])
+        self.lr_decay.load_state_dict(state_dict['lr_decay_state_dict'])
+
+        if self.lr_cosine:
+            self.lr_cosine.load_state_dict(state_dict.get('lr_warmup_state_dict', {}))
     
     def on_train_start(self, state):
         super().on_train_start(state)
@@ -148,17 +184,29 @@ class WandbCallback(TrainingCallback):
         self.save_code = save_code
         self.log = log
         self.batch_frequency = batch_frequency
+        self.run_id = None
+
+    def state_dict(self):
+        state_dict = {}
+        state_dict.update({'run_id': self.run_id})
+        return state_dict
+
+    def load_state_dict(self, state_dict):
+        self.run_id = state_dict.get('run_id', None)
 
     def on_train_start(self, state):
         super().on_train_start(state)
         # Create a new wandb run
+        # TODO: maybe also resume='must'
         self.run = wandb.init(
+                id=self.run_id,
                 project=self.project_name,
                 entity=self.entity,
                 config=self.config,
                 tags=self.tags,
                 save_code=self.save_code,
                 reinit=True)
+        self.run_id = self.run.id
 
     def on_train_end(self, state):
         super().on_train_end(state)
@@ -208,6 +256,15 @@ class CheckpointCallback(TrainingCallback):
 
         if self.save_best and self.mode:
             self.minimize = mode == 'min'
+    def state_dict(self):
+        state_dict = {}
+        if self.save_best:
+            state_dict.update({'best': self.best})
+        return state_dict
+
+    def load_state_dict(self, state_dict):
+        if 'best' in state_dict:
+            self.best = state_dict['best']
 
     def on_train_start(self, state):
         super().on_train_start(state)
