@@ -209,7 +209,7 @@ class BitboardDataset(Dataset):
             entry = self._preprocess_row(self.dataset.iloc[idx])
             target = entry.iloc[-1]
             # Reshape features into array of 12 bitboards of size 8x8
-            features = entry[:-4] # drop side, ep, castling, score (TODO: find a way to use them)
+            features = entry[:-4] # drop side, ep, castling, score
             features = np.concatenate(features.values).reshape(12, 8, 8)
             aux = entry[-4:-1] # side, ep, castling
         else: # already preloaded and processed

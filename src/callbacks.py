@@ -106,7 +106,7 @@ class ProgressbarCallback(TrainingCallback):
 
 
 class LRSchedulerCallback(TrainingCallback):
-    def __init__(self, optimizer, warmup_steps=1000, cosine_annealing=True, restart=False, cosine_tmax=None, min_lr=0.0):
+    def __init__(self, optimizer, warmup_steps=1000, cosine_annealing=True, restart=False, cosine_tmax=None, cosine_factor=None, min_lr=0.0):
         super().__init__()
         self.optimizer = optimizer
         self.warmup_steps = warmup_steps
@@ -115,11 +115,15 @@ class LRSchedulerCallback(TrainingCallback):
         self.lr_cosine = None
         self.cosine_annealing = cosine_annealing
         self.cosine_tmax = cosine_tmax
+        self.cosine_factor = cosine_factor
         self.restart = restart
         self.min_lr = min_lr
 
         if self.cosine_tmax is None and self.cosine_annealing:
             self.cosine_tmax = 50
+            if not self.cosine_factor:
+                self.cosine_factor = 1
+            self.cosine_factor = int(self.cosine_factor)
 
     def state_dict(self):
         state_dict = {}
@@ -163,7 +167,7 @@ class LRSchedulerCallback(TrainingCallback):
             if epoch is not None and batches and epoch * batches > self.warmup_steps:
                 # With restarts
                 if self.lr_cosine is None and self.restart:
-                    self.lr_cosine = CosineAnnealingWarmRestarts(self.optimizer, self.cosine_tmax, 1, eta_min=self.min_lr)
+                    self.lr_cosine = CosineAnnealingWarmRestarts(self.optimizer, self.cosine_tmax, self.cosine_factor, eta_min=self.min_lr)
                 # Without restarts
                 elif self.lr_cosine is None and not self.restart:
                     self.lr_cosine = CosineAnnealingLR(self.optimizer, self.cosine_tmax, eta_min=self.min_lr)
@@ -176,7 +180,6 @@ class LRSchedulerCallback(TrainingCallback):
 
 
 class WandbCallback(TrainingCallback):
-    #TODO: need to log the average of the loss (not only for the last batch)
     def __init__(self, project_name, entity, config=None, tags=None, save_code=True, log=True, batch_frequency=None):
         super().__init__()
         self.project_name = project_name
@@ -199,7 +202,6 @@ class WandbCallback(TrainingCallback):
     def on_train_start(self, state):
         super().on_train_start(state)
         # Create a new wandb run
-        # TODO: maybe also resume='must'
         self.run = wandb.init(
                 id=self.run_id,
                 project=self.project_name,
