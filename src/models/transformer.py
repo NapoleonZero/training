@@ -3,6 +3,7 @@ from torch import nn
 
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
+from models.cnn import Conv2dBlock
 
 def pair(t):
     return t if isinstance(t, tuple) else (t, t)
@@ -70,23 +71,75 @@ class ViT(nn.Module):
         x = self.to_latent(x)
         return self.mlp_head(x)
 
+class CNN(nn.Module):
+    # TODO: try GELU and kernels > 2
+    # TODO: add residual connections
+    def __init__(self, in_channels, out_channels, layers=4, kernel_size=2, pool=True):
+        super(CNN, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        
+        conv_layers = []
+        for i in range(layers):
+            # Input layer
+            if i == 0:
+                conv_layers.append(Conv2dBlock(in_channels, out_channels, kernel_size=kernel_size))
+            # Output/Pooling layer
+            elif i == layers - 1:
+                conv_layers.append(Conv2dBlock(out_channels, out_channels, kernel_size=kernel_size, pool=pool))
+            # Intermediate layer
+            else:
+                conv_layers.append(Conv2dBlock(out_channels, out_channels, kernel_size=kernel_size))
+
+        self.conv_stack = nn.Sequential(*conv_layers)
+
+    def forward(self, x):
+        return self.conv_stack(x)
 
 class BitboardTransformer(nn.Module):
-    def __init__(self, patch_size=2, dim=64, depth=12, heads=32, mlp_dim=256, dropout=0.1, emb_dropout=0.0):
+    def __init__(self,
+                 cnn_projection=True,
+                 cnn_out_channels=128,
+                 cnn_layers=4,
+                 cnn_kernel_size=2,
+                 cnn_pool=True,
+                 patch_size=2,
+                 dim=64,
+                 depth=12,
+                 heads=32,
+                 mlp_dim=256,
+                 dropout=0.1,
+                 emb_dropout=0.0):
         super(BitboardTransformer, self).__init__()
+        self.cnn_projection = cnn_projection
+
+        cnn_out_dim = 4
+        vit_channels = cnn_out_channels if self.cnn_projection else 12
+
+        if self.cnn_projection:
+            assert cnn_out_channels, 'You must specify the number of CNN output channels'
+            self.cnn = CNN(
+                        in_channels=12,
+                        out_channels=cnn_out_channels,
+                        layers=cnn_layers,
+                        kernel_size=cnn_kernel_size,
+                        pool=cnn_pool
+                        )
         self.vit = ViT(
-                    image_size=8,
+                    image_size=cnn_out_dim,
                     patch_size=patch_size,
                     num_classes=1,
                     dim=dim,
                     depth=depth,
                     heads=heads,
                     mlp_dim=mlp_dim,
-                    channels=12,
+                    channels=vit_channels,
                     pool='mean',
                     dropout=dropout,
                     emb_dropout=emb_dropout
                     )
 
     def forward(self, x, aux):
+        if self.cnn_projection:
+            x = self.cnn(x)
         return self.vit(x, aux)

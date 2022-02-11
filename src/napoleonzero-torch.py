@@ -41,15 +41,20 @@ def main():
     # dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=True, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
     dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, preload=True, from_dump=True, seed=SEED, debug=True)
 
-    patch_size = 2
+    patch_size = 1
     # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
     config = {
             'seed': SEED,
             'device': device,
             'dataset': DATASET,
             'dataset-size': len(dataset),
+            'cnn-projection': True,
+            'cnn-output-channels': 128,
+            'cnn-layers': 4,
+            'cnn-kernel-size': 2,
+            'cnn-pool': True,
             'vit-patch-size': patch_size,
-            'vit-dim': (patch_size**2 * 16),
+            'vit-dim': 64,
             'vit-depth': 4,
             'vit-heads': 16,
             'vit-mlp-dim': 256,
@@ -58,13 +63,13 @@ def main():
             'weight-decay': 0.0,
             'learning-rate': 1e-3,
             'lr-warmup-steps': 1000,
-            'lr-cosine-annealing': True,
-            'lr-cosine-tmax': 10,
-            'lr-cosine-factor': 2,
-            'lr-restart': True,
+            'lr-cosine-annealing': False,
+            'lr-cosine-tmax': None,
+            'lr-cosine-factor': None,
+            'lr-restart': False,
             'min-lr': 1e-6,
             'adam-betas': (0.9, 0.999),
-            'epochs': 500,
+            'epochs': 200,
             'train-split-perc': 0.95,
             'val-split-perc': 0.025,
             'test-split-perc': 0.025,
@@ -74,6 +79,11 @@ def main():
             }
 
     model = BitboardTransformer(
+                cnn_projection=config['cnn-projection'],
+                cnn_out_channels=config['cnn-output-channels'],
+                cnn_layers=config['cnn-layers'],
+                cnn_kernel_size=config['cnn-kernel-size'],
+                cnn_pool=config['cnn-pool'],
                 patch_size=config['vit-patch-size'],
                 dim=config['vit-dim'],
                 depth=config['vit-depth'],
@@ -126,7 +136,7 @@ def main():
                     project_name='napoleon-zero-pytorch',
                     entity='marco-pampaloni',
                     config=config,
-                    tags=['initial-test-wandb', 'test-checkpoint']
+                    tags=['initial-test-wandb', 'test-cnn-embeddings']
                     ),
                 CheckpointCallback(
                     path=ARTIFACTS_PATH + '/checkpoint.pt',
