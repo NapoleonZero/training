@@ -7,6 +7,7 @@ from torch import nn
 
 from datasets import BitboardDataset
 from models import CNN, BitboardTransformer
+from utils import download_wandb_checkpoint
 from training import TrainingLoop
 from callbacks import TrainingCallback, ProgressbarCallback, LRSchedulerCallback
 from callbacks import WandbCallback, CheckpointCallback
@@ -43,6 +44,7 @@ def main():
 
     patch_size = 1
     # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
+    # TODO: move to a YAML file
     config = {
             'seed': SEED,
             'device': device,
@@ -51,7 +53,7 @@ def main():
             'cnn-projection': True,
             'cnn-output-channels': 128,
             'cnn-layers': 4,
-            'cnn-kernel-size': 2,
+            'cnn-kernel-size': 3,
             'cnn-pool': True,
             'vit-patch-size': patch_size,
             'vit-dim': 64,
@@ -63,9 +65,9 @@ def main():
             'weight-decay': 0.0,
             'learning-rate': 1e-3,
             'lr-warmup-steps': 1000,
-            'lr-cosine-annealing': False,
-            'lr-cosine-tmax': None,
-            'lr-cosine-factor': None,
+            'lr-cosine-annealing': True,
+            'lr-cosine-tmax': 200,
+            'lr-cosine-factor': 1,
             'lr-restart': False,
             'min-lr': 1e-6,
             'adam-betas': (0.9, 0.999),
@@ -150,7 +152,9 @@ def main():
 
     training_loop.run(epochs=epochs)
 
-    # checkpoint = torch.load(ARTIFACTS_PATH + '/checkpoint.pt')
+
+    # # checkpoint = torch.load(ARTIFACTS_PATH + '/checkpoint.pt')
+    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/22p9wui8', 'checkpoint.pt')
     # training_loop.load_state(checkpoint)
     # training_loop.run(epochs=epochs)
 

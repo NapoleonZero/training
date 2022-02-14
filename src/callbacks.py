@@ -125,6 +125,14 @@ class LRSchedulerCallback(TrainingCallback):
                 self.cosine_factor = 1
             self.cosine_factor = int(self.cosine_factor)
 
+    def _init_cosine_annealing(self):
+        # With restarts
+        if self.restart:
+            self.lr_cosine = CosineAnnealingWarmRestarts(self.optimizer, self.cosine_tmax, self.cosine_factor, eta_min=self.min_lr)
+        # Without restarts
+        else:
+            self.lr_cosine = CosineAnnealingLR(self.optimizer, self.cosine_tmax, eta_min=self.min_lr)
+
     def state_dict(self):
         state_dict = {}
         state_dict.update({
@@ -143,8 +151,10 @@ class LRSchedulerCallback(TrainingCallback):
         self.lr_warmup.load_state_dict(state_dict['lr_warmup_state_dict'])
         self.lr_decay.load_state_dict(state_dict['lr_decay_state_dict'])
 
-        if self.lr_cosine:
-            self.lr_cosine.load_state_dict(state_dict.get('lr_warmup_state_dict', {}))
+        if self.cosine_annealing:
+            if self.lr_cosine is None:
+                self._init_cosine_annealing()
+            self.lr_cosine.load_state_dict(state_dict.get('lr_cosine_state_dict', {}))
     
     def on_train_start(self, state):
         super().on_train_start(state)
@@ -165,13 +175,11 @@ class LRSchedulerCallback(TrainingCallback):
             epoch = state.get_state('epoch')
             # Only when warmup is over
             if epoch is not None and batches and epoch * batches > self.warmup_steps:
-                # With restarts
-                if self.lr_cosine is None and self.restart:
-                    self.lr_cosine = CosineAnnealingWarmRestarts(self.optimizer, self.cosine_tmax, self.cosine_factor, eta_min=self.min_lr)
-                # Without restarts
-                elif self.lr_cosine is None and not self.restart:
-                    self.lr_cosine = CosineAnnealingLR(self.optimizer, self.cosine_tmax, eta_min=self.min_lr)
-                # Apply annealing
+                # Init cosine annealing if None
+                if self.lr_cosine is None:
+                    self._init_cosine_annealing()
+
+                # Apply cosine annealing
                 self.lr_cosine.step()
         # Decay on plateau (if cosine_annealing is False)
         elif val_loss is not None:

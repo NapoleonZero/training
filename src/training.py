@@ -238,7 +238,7 @@ class TrainingLoop():
         for c in self.callbacks: c.on_train_epoch_start(self)
 
     def on_train_epoch_end(self, epoch_num):
-        # setting epoch + 1 on epoch end let's is necessary for cases in which
+        # setting epoch + 1 on epoch end is necessary for cases in which
         # the training stopped mid-epoch
         self.update_state('epoch', epoch_num + 1)
         for c in self.callbacks: c.on_train_epoch_end(self)
