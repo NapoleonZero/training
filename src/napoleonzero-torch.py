@@ -121,6 +121,7 @@ def main():
             mixed_precision=config['mixed-precision'],
             verbose=1,
             seed=SEED,
+            val_metrics={'l1': nn.L1Loss()},
             callbacks=[
                 LRSchedulerCallback(
                     optimizer,

@@ -18,7 +18,7 @@ class TrainingLoop():
                  device='cpu',
                  mixed_precision=False,
                  callbacks=[],
-                 metrics=[],
+                 val_metrics={},
                  verbose=1,
                  seed=42):
         self.model = model
@@ -34,7 +34,7 @@ class TrainingLoop():
         self.mixed_precision = mixed_precision
         self.verbose = verbose
         self.callbacks = callbacks
-        self.metrics = dict.fromkeys(metrics)
+        self.val_metrics = val_metrics
         self.seed = 42
 
         self._clear_state()
@@ -124,17 +124,18 @@ class TrainingLoop():
 
                 self.on_train_batch_end(batch, loss)
 
-            val_loss = self._test(self.val_dataloader)
-            self.update_metric('val_loss', val_loss)
-            self.on_validation_end()
+            val_loss, other_metrics = self._test(self.val_dataloader, self.val_metrics)
+            self.on_validation_end(val_loss, other_metrics)
             self.on_train_epoch_end(epoch)
 
         self.on_train_end()
 
-    def _test(self, dataloader):
+    def _test(self, dataloader, metrics):
         num_batches = len(dataloader)
         self.model.eval()
         test_loss = 0.0
+        test_metrics = dict.fromkeys(metrics.keys(), 0.0)
+        # test_metrics = [0.0 for _ in metrics.keys()]
         with torch.no_grad():
             for X, aux, y in dataloader:
                 # TODO: generalize variable type
@@ -144,8 +145,12 @@ class TrainingLoop():
 
                 pred = self.model(X, aux).squeeze()
                 test_loss += self.loss_fn(pred, y)
+                for name, fn in metrics.items():
+                    test_metrics[name] += fn(pred, y)
+
         test_loss /= num_batches
-        return test_loss
+        test_metrics = {k: v / num_batches for k, v in test_metrics.items()}
+        return test_loss, test_metrics
 
     def run(self, epochs=10):
         self._train(epochs)
@@ -252,7 +257,11 @@ class TrainingLoop():
     def on_validation_start(self):
         for c in self.callbacks: c.on_validation_start(self)
 
-    def on_validation_end(self):
+    def on_validation_end(self, val_loss, other_metrics):
+        self.update_metric('val_loss', val_loss)
+
+        for metric, value in other_metrics.items():
+            self.update_metric(f'val_{metric}', value)
         for c in self.callbacks: c.on_validation_end(self)
 
     # TODO: maybe use an other class for evaluation?

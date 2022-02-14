@@ -101,8 +101,13 @@ class ProgressbarCallback(TrainingCallback):
         super().on_validation_end(state)
         # TODO: use self.metrics to update the progress bar
         val_loss = state.get_last_metric('val_loss')
+        other_metrics = state.val_metrics.keys()
         if val_loss is not None:
             self.kbar.add(1, values=[('val_loss', val_loss)])
+
+        for metric in other_metrics:
+            metric = f'val_{metric}'
+            self.kbar.add(1, values=[(metric, state.get_last_metric(metric))])
 
 
 class LRSchedulerCallback(TrainingCallback):
