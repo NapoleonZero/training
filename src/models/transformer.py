@@ -74,10 +74,11 @@ class ViT(nn.Module):
 class CNN(nn.Module):
     # TODO: try GELU and kernels > 2
     # TODO: add residual connections
-    def __init__(self, in_channels, out_channels, layers=4, kernel_size=2, pool=True):
+    def __init__(self, in_channels, out_channels, layers=4, kernel_size=2, residual=True, pool=True):
         super(CNN, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
+        self.residual = residual
         
         conv_layers = []
         for i in range(layers):
@@ -91,17 +92,28 @@ class CNN(nn.Module):
             else:
                 conv_layers.append(Conv2dBlock(out_channels, out_channels, kernel_size=kernel_size))
 
-        self.conv_stack = nn.Sequential(*conv_layers)
+        # self.conv_stack = nn.Sequential(*conv_layers)
+        self.conv_stack = nn.ModuleList(conv_layers)
 
     def forward(self, x):
-        return self.conv_stack(x)
+        y = x
+        for layer in self.conv_stack:
+            y = layer(y)
+            if self.residual and x.shape == y.shape:
+                y = y + x
+            x = y
+        return y
 
+        # return self.conv_stack(x)
+
+#TODO: try CNN residual connections
 class BitboardTransformer(nn.Module):
     def __init__(self,
                  cnn_projection=True,
                  cnn_out_channels=128,
                  cnn_layers=4,
                  cnn_kernel_size=2,
+                 cnn_residual=True,
                  cnn_pool=True,
                  patch_size=2,
                  dim=64,
@@ -123,6 +135,7 @@ class BitboardTransformer(nn.Module):
                         out_channels=cnn_out_channels,
                         layers=cnn_layers,
                         kernel_size=cnn_kernel_size,
+                        residual=cnn_residual,
                         pool=cnn_pool
                         )
         self.vit = ViT(
