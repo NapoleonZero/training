@@ -44,12 +44,22 @@ class ViT(nn.Module):
                 )
 
         self.pool = pool
-        self.to_latent = nn.Identity()
+        self.to_latent = nn.Identity() # ?
 
         self.mlp_head = nn.Sequential(
                 nn.LayerNorm(dim),
                 nn.Linear(dim, num_classes)
         )
+        # self.mlp_head = nn.Sequential(
+        #         nn.LayerNorm(dim + 1),
+        #         nn.Linear(dim + 1, mlp_dim),
+        #         nn.GELU(),
+        #         nn.LayerNorm(mlp_dim),
+        #         nn.Linear(mlp_dim, mlp_dim),
+        #         nn.GELU(),
+        #         nn.LayerNorm(mlp_dim),
+        #         nn.Linear(mlp_dim, num_classes)
+        # )
 
     def forward(self, img, aux):
         x = self.to_patch_embedding(img)
@@ -68,12 +78,13 @@ class ViT(nn.Module):
 
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
 
-        x = self.to_latent(x)
+        # x = torch.cat((x, material), dim=1)
+
+        x = self.to_latent(x) # ?
         return self.mlp_head(x)
 
+# TODO: try other normalization layers
 class CNN(nn.Module):
-    # TODO: try GELU and kernels > 2
-    # TODO: add residual connections
     def __init__(self, in_channels, out_channels, layers=4, kernel_size=2, residual=True, pool=True):
         super(CNN, self).__init__()
         self.in_channels = in_channels
@@ -92,7 +103,6 @@ class CNN(nn.Module):
             else:
                 conv_layers.append(Conv2dBlock(out_channels, out_channels, kernel_size=kernel_size))
 
-        # self.conv_stack = nn.Sequential(*conv_layers)
         self.conv_stack = nn.ModuleList(conv_layers)
 
     def forward(self, x):
@@ -104,9 +114,6 @@ class CNN(nn.Module):
             x = y
         return y
 
-        # return self.conv_stack(x)
-
-#TODO: try CNN residual connections
 class BitboardTransformer(nn.Module):
     def __init__(self,
                  cnn_projection=True,
@@ -152,7 +159,20 @@ class BitboardTransformer(nn.Module):
                     emb_dropout=emb_dropout
                     )
 
+        # self.material_mlp = nn.Sequential(
+        #             nn.Flatten(),
+        #             nn.Linear(12*8*8, 1024),
+        #             nn.ELU(),
+        #             nn.Linear(1024, 1)
+        #             )
+        self.material_mlp = nn.Sequential(
+                    nn.Flatten(),
+                    nn.Linear(12*8*8, 1)
+                    )
+
     def forward(self, x, aux):
+        material = self.material_mlp(x)
         if self.cnn_projection:
             x = self.cnn(x)
-        return self.vit(x, aux)
+        # return self.vit(x, aux)
+        return self.vit(x, aux) + material

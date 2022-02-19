@@ -6,6 +6,8 @@ class Conv2dBlock(nn.Module):
                  in_channels: int,
                  out_channels: int,
                  kernel_size=(2,2),
+                 stride=1,
+                 dilation=1,
                  activation=nn.ReLU(),
                  padding='same',
                  normalize=True,
@@ -14,6 +16,8 @@ class Conv2dBlock(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
+        self.stride = stride
+        self.dilation = dilation
         self.activation = activation
         self.padding = padding
         self.normalize = normalize
@@ -22,12 +26,14 @@ class Conv2dBlock(nn.Module):
         self.conv = nn.Conv2d(
                 self.in_channels, self.out_channels,
                 kernel_size=self.kernel_size,
-                stride=1,
+                stride=stride,
+                dilation=dilation,
                 bias=(not self.normalize),
                 padding=self.padding
                 )
         if self.normalize:
             self.norm_layer = nn.BatchNorm2d(self.out_channels)
+            # self.norm_layer = nn.GroupNorm(1, self.out_channels)
         if self.pool:
             self.pool_layer = nn.MaxPool2d(kernel_size=(2,2))
 

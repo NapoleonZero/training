@@ -1,8 +1,10 @@
 import torch
+from torch import nn
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LinearLR, ReduceLROnPlateau
 from datasets.utils import split_dataset
 from contextlib import ExitStack
+import numpy as np
 
 class TrainingLoop():
     def __init__(self,
@@ -92,6 +94,12 @@ class TrainingLoop():
             scaler = torch.cuda.amp.GradScaler()
 
         initial_epoch = self.get_state('epoch', 1)
+
+        #######################################################################
+        # TESTING AUX LOSS
+        # aux_loss = nn.MSELoss()
+        #######################################################################
+
         for epoch in range(initial_epoch, initial_epoch + epochs):
             self.on_train_epoch_start(epoch)
 
@@ -111,7 +119,12 @@ class TrainingLoop():
                     if self.mixed_precision:
                         stack.enter_context(torch.cuda.amp.autocast())
                     pred = self.model(X, aux).squeeze()
+        #######################################################################
+                    # TESTING AUX LOSS
+                    # aux_pred = self.model.material_mlp(X).squeeze()
+                    # loss = self.loss_fn(pred, y) + 0.1*aux_loss(aux_pred, y)
                     loss = self.loss_fn(pred, y)
+        #######################################################################
 
                 # Backpropagation
                 if self.mixed_precision:
@@ -152,6 +165,23 @@ class TrainingLoop():
         test_metrics = {k: v / num_batches for k, v in test_metrics.items()}
         return test_loss, test_metrics
 
+    def _predict(self, dataloader):
+        self.model.eval()
+        h = []
+        target = []
+        with torch.no_grad():
+            for X, aux, y in dataloader:
+                # TODO: generalize variable type
+                X = X.float().to(self.device, non_blocking=True, memory_format=torch.channels_last)
+                y = y.float().to(self.device, non_blocking=True)
+                aux = aux.float().to(self.device, non_blocking=True)
+
+                pred = self.model(X, aux).squeeze()
+                h = np.concatenate((h, pred.cpu().detach().numpy()), axis=None)
+                target = np.concatenate((target, y.cpu().detach().numpy()), axis=None)
+
+        return h, target
+    
     def run(self, epochs=10):
         self._train(epochs)
         return self.model
@@ -266,4 +296,5 @@ class TrainingLoop():
 
     # TODO: maybe use an other class for evaluation?
     def evaluate(self):
-        pass
+        loss, other_metrics = self._test(self.test_dataloader, self.val_metrics)
+        return {'loss': loss, **other_metrics}

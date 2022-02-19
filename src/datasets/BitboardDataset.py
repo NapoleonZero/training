@@ -26,6 +26,9 @@ class BitboardDataset(Dataset):
                  fraction=1.0,
                  transform=None,
                  target_transform=None,
+                 oversample=False,
+                 oversample_factor=2.0,
+                 oversample_target=5.0,
                  seed=42,
                  debug=False):
         self.dir = dir
@@ -36,8 +39,12 @@ class BitboardDataset(Dataset):
         self.fraction = fraction
         self.transform = transform
         self.target_transform = target_transform
+        self.oversample = oversample
+        self.oversample_factor = oversample_factor
+        self.oversample_target = oversample_target
         self.seed = seed
         self.debug = debug
+
 
         # Load already preprocessed dataset from a numpy binary file
         if self.from_dump:
@@ -70,6 +77,20 @@ class BitboardDataset(Dataset):
             print(f'Scores size: {self.scores.nbytes / 2**30}G')
             print(f'Aux size: {self.aux.nbytes / 2**30}G')
 
+        # TODO: try oversampling positions where white is losing
+        if self.oversample:
+            assert self.oversample_factor
+            idx = abs(self.scores) > self.oversample_target
+            self.oversample_dataset = self.dataset[idx]
+            self.oversample_aux = self.aux[idx]
+            self.oversample_scores = self.scores[idx]
+            print(len(self.dataset))
+            print(len(self.oversample_dataset))
+            print(self.oversample_factor)
+            self.oversample_frequency = len(self.dataset) // int(len(self.oversample_dataset) * self.oversample_factor)
+            print(self.oversample_frequency)
+        
+
     def _load_dump(self, dir, npz):
         """ 
         Load already preprocessed dataset from a numpy binary file
@@ -81,6 +102,9 @@ class BitboardDataset(Dataset):
         gc.collect()
 
         return bitboards, aux, scores
+
+    def save_dump(self, file):
+        np.savez(file, bitboards=self.dataset, aux=self.aux, scores=self.scores)
 
     def _join_datasets(self, dir, glob_str):
         dfs = []
@@ -202,6 +226,8 @@ class BitboardDataset(Dataset):
         return row
 
     def __len__(self):
+        if self.oversample:
+            return len(self.dataset) + int(len(self.oversample_dataset)*self.oversample_factor)
         return len(self.dataset)
 
     def __getitem__(self, idx):
@@ -213,8 +239,15 @@ class BitboardDataset(Dataset):
             features = np.concatenate(features.values).reshape(12, 8, 8)
             aux = entry[-4:-1] # side, ep, castling
         else: # already preloaded and processed
-            features = self.dataset[idx]
-            target = self.scores[idx]
-            aux = self.aux[idx]
+            if self.oversample and idx % self.oversample_frequency == 0:
+                idx = (idx // self.oversample_frequency) % len(self.oversample_dataset)
+                features = self.oversample_dataset[idx]
+                target = self.oversample_scores[idx]
+                aux = self.oversample_aux[idx]
+            else:
+                idx = idx % len(self.dataset)
+                features = self.dataset[idx]
+                target = self.scores[idx]
+                aux = self.aux[idx]
 
         return torch.from_numpy(features), torch.from_numpy(aux), target
