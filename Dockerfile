@@ -10,11 +10,14 @@ RUN pip install --upgrade wandb && \
 WORKDIR /root
 RUN mkdir -p ./NapoleonZero
 COPY ./datasets/datasets ./NapoleonZero/datasets
+
 # Join dataset dumps
 # (we have to split them because github won't allow files bigger than 2G)
-RUN cat ./NapoleonZero/datasets/ccrl5M-depth1.npz.part* > \
-      ./NapoleonZero/datasets/ccrl5M-depth1.npz && \
-      rm ./NapoleonZero/datasets/ccrl5M-depth1.npz.part*
+# RUN cat ./NapoleonZero/datasets/ccrl5M-depth1.npz.part* > \
+#       ./NapoleonZero/datasets/ccrl5M-depth1.npz && \
+#       rm ./NapoleonZero/datasets/ccrl5M-depth1.npz.part*
+# RUN split -d -n l/100 ./NapoleonZero/datasets/sf11-42M.csv ./NapoleonZero/datasets/sf11-42M.part && \
+#     rm ./NapoleonZero/datasets/sf11-42M.csv
 
 COPY ./src ./NapoleonZero/src
 RUN chmod +x ./NapoleonZero/src/napoleonzero-torch.py

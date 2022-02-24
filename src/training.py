@@ -56,6 +56,13 @@ class TrainingLoop():
                 self.test_p)
 
     def _make_dataloaders(self, dataset, train_p, val_p, test_p):
+        # train_ds, val_ds, test_ds = dataset.split(
+        #         train_p,
+        #         val_p,
+        #         test_p,
+        #         self.seed,
+        #         oversample=False)
+
         train_ds, val_ds, test_ds = split_dataset(dataset,
                 train_p, val_p, test_p,
                 seed=self.seed)
@@ -74,7 +81,7 @@ class TrainingLoop():
                 prefetch_factor=2,
                 persistent_workers=False)
         test_dl = DataLoader(test_ds,
-                batch_size=len(test_ds),
+                batch_size=self.batch_size,
                 shuffle=False,
                 pin_memory=True,
                 num_workers=0)
@@ -122,7 +129,7 @@ class TrainingLoop():
         #######################################################################
                     # TESTING AUX LOSS
                     # aux_pred = self.model.material_mlp(X).squeeze()
-                    # loss = self.loss_fn(pred, y) + 0.1*aux_loss(aux_pred, y)
+                    # loss = self.loss_fn(pred, y) + aux_loss(aux_pred, y)
                     loss = self.loss_fn(pred, y)
         #######################################################################
 

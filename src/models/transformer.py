@@ -122,6 +122,7 @@ class BitboardTransformer(nn.Module):
                  cnn_kernel_size=2,
                  cnn_residual=True,
                  cnn_pool=True,
+                 material_head=False,
                  patch_size=2,
                  dim=64,
                  depth=12,
@@ -131,6 +132,7 @@ class BitboardTransformer(nn.Module):
                  emb_dropout=0.0):
         super(BitboardTransformer, self).__init__()
         self.cnn_projection = cnn_projection
+        self.material_head = material_head
 
         cnn_out_dim = 4
         vit_channels = cnn_out_channels if self.cnn_projection else 12
@@ -165,14 +167,22 @@ class BitboardTransformer(nn.Module):
         #             nn.ELU(),
         #             nn.Linear(1024, 1)
         #             )
-        self.material_mlp = nn.Sequential(
-                    nn.Flatten(),
-                    nn.Linear(12*8*8, 1)
-                    )
+        if self.material_head:
+            self.material_mlp = nn.Sequential(
+                        nn.Flatten(),
+                        nn.Linear(12*8*8, 1)
+                        )
 
     def forward(self, x, aux):
-        material = self.material_mlp(x)
+        if self.material_head:
+            material = self.material_mlp(x)
+
         if self.cnn_projection:
             x = self.cnn(x)
-        # return self.vit(x, aux)
-        return self.vit(x, aux) + material
+
+        x = self.vit(x, aux)
+
+        if self.material_head:
+            x = x + material
+
+        return x

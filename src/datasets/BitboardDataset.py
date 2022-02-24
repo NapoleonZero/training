@@ -1,10 +1,12 @@
 import numpy as np
 import pandas as pd
 import torch
+import math
 import glob
 import gc
 from torch.utils.data import Dataset
 from multiprocessing import Pool
+from datasets.utils import split_dataset
 
 def string_to_matrix(bitboard):
     return np.array([b for b in bitboard], dtype=np.uint8).reshape(8,8).copy()
@@ -12,6 +14,7 @@ def string_to_matrix(bitboard):
 def string_to_array(bitboard):
     return np.array([b for b in bitboard], dtype=np.uint8)
 
+# TODO: create OversampleDataset wrapper class
 class BitboardDataset(Dataset):
     """ Represents a generic Dataset of games
         TODO: implement transform and target_transform
@@ -45,7 +48,6 @@ class BitboardDataset(Dataset):
         self.seed = seed
         self.debug = debug
 
-
         # Load already preprocessed dataset from a numpy binary file
         if self.from_dump:
             self.dataset, self.aux, self.scores = self._load_dump(dir, filename)
@@ -77,18 +79,15 @@ class BitboardDataset(Dataset):
             print(f'Scores size: {self.scores.nbytes / 2**30}G')
             print(f'Aux size: {self.aux.nbytes / 2**30}G')
 
-        # TODO: try oversampling positions where white is losing
         if self.oversample:
-            assert self.oversample_factor
+            assert self.oversample_factor > 1
+            self.oversample_factor = int(math.ceil(self.oversample_factor))
+
             idx = abs(self.scores) > self.oversample_target
             self.oversample_dataset = self.dataset[idx]
             self.oversample_aux = self.aux[idx]
             self.oversample_scores = self.scores[idx]
-            print(len(self.dataset))
-            print(len(self.oversample_dataset))
-            print(self.oversample_factor)
-            self.oversample_frequency = len(self.dataset) // int(len(self.oversample_dataset) * self.oversample_factor)
-            print(self.oversample_frequency)
+            self.oversample_frequency = math.ceil(self.__len__() / len(self.oversample_dataset) * (self.oversample_factor - 1))
         
 
     def _load_dump(self, dir, npz):
@@ -102,9 +101,6 @@ class BitboardDataset(Dataset):
         gc.collect()
 
         return bitboards, aux, scores
-
-    def save_dump(self, file):
-        np.savez(file, bitboards=self.dataset, aux=self.aux, scores=self.scores)
 
     def _join_datasets(self, dir, glob_str):
         dfs = []
@@ -123,7 +119,6 @@ class BitboardDataset(Dataset):
         # unbiased sampling of the dataset when preload_chunks = True.
         if not self.preload_chunks:
             files = files[:int(len(files)*self.fraction)]
-        
 
         # TODO: try pandas arrow string type
         dtypes = {
@@ -155,7 +150,7 @@ class BitboardDataset(Dataset):
         if self.debug:
             print('Concatenating datasets')
         df_merged = pd.concat(dfs, axis=0, ignore_index=True)
-        df_merged = self._filter_scores(df_merged, scaled=False)
+        # df_merged = self._filter_scores(df_merged, scaled=False)
         gc.collect()
 
         
@@ -169,8 +164,8 @@ class BitboardDataset(Dataset):
     def _filter_scores(self, ds, scaled=False):
         """ Remove positions with too high scores """
         if scaled:
-            return ds[np.abs(ds[17]) < 50] 
-        return ds[np.abs(ds[17]) < 50*100]
+            return ds[np.abs(ds[17]) < 2000] 
+        return ds[np.abs(ds[17]) < 2000*100]
 
     def _preprocess_ds(self, ds):
         """ Preprocess dataset in place.
@@ -227,7 +222,8 @@ class BitboardDataset(Dataset):
 
     def __len__(self):
         if self.oversample:
-            return len(self.dataset) + int(len(self.oversample_dataset)*self.oversample_factor)
+            # return len(self.dataset) + int(len(self.oversample_dataset)*self.oversample_factor)
+            return len(self.dataset) + int(len(self.oversample_dataset) * (self.oversample_factor-1))
         return len(self.dataset)
 
     def __getitem__(self, idx):
@@ -251,3 +247,38 @@ class BitboardDataset(Dataset):
                 aux = self.aux[idx]
 
         return torch.from_numpy(features), torch.from_numpy(aux), target
+
+    # def split(self, train_p=0.7, val_p=0.15, test_p=0.15, seed=None, oversample=False):
+    #     """ Split the dataset into disjoint sets: training, validation and test
+    #         If the dataset has been oversampled and oversample=True is passed to
+    #         this method, the computed validation and test sets will possibly
+    #         include the oversampled items.
+
+    #         Note: if oversample=True you won't get a disjoint partition in
+    #         general
+    #         Note: when using an oversampled dataset and passing
+    #         oversample=False, the validation and test datasets will not have
+    #         precisely the sizes indicated by the percentages, although
+    #         their expected value will.
+
+    #     """
+    #     if seed is None:
+    #         seed = self.seed
+
+    #     train_ds, val_ds, test_ds = split_dataset(self, train_p, val_p, test_p, seed)
+
+    #     if self.oversample and not oversample:
+    #         val_ds.indices = self._drop_oversample_indices(val_ds.indices)
+    #         test_ds.indices = self._drop_oversample_indices(test_ds.indices)
+    #     return train_ds, val_ds, test_ds
+
+    def _drop_oversample_indices(self, indices):
+        """ Drop indices that correspond to oversampled items """
+        if not self.oversample or not self.oversample_frequency:
+            return indices
+        
+        return [idx for idx in indices if idx % self.oversample_frequency != 0]
+
+    def save_dump(self, file):
+        np.savez(file, bitboards=self.dataset, aux=self.aux, scores=self.scores)
+

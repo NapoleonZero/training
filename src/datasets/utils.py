@@ -11,6 +11,11 @@ def split_dataset(ds, train_p=0.7, val_p=0.15, test_p=0.15, seed=42):
         returns (train_ds, val_ds, test_ds)
     """
     train_size = int(len(ds) * train_p)
+
+    # if ds.oversample:
+    #     val_size = int(len(ds) * val_p)
+    #     test_size = len(ds) - train_size - val_size
+    # else:
     val_size = int(len(ds) * val_p)
     test_size = len(ds) - train_size - val_size
 
