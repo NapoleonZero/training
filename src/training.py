@@ -172,22 +172,22 @@ class TrainingLoop():
         test_metrics = {k: v / num_batches for k, v in test_metrics.items()}
         return test_loss, test_metrics
 
-    def _predict(self, dataloader):
+    def predict(self, data):
+        """ Run inference over a set of datapoints,
+            returning the predicted values.
+            `data` can be any iterable complying with the model input.
+        """
         self.model.eval()
         h = []
-        target = []
         with torch.no_grad():
-            for X, aux, y in dataloader:
-                # TODO: generalize variable type
+            for X, aux in data:
                 X = X.float().to(self.device, non_blocking=True, memory_format=torch.channels_last)
-                y = y.float().to(self.device, non_blocking=True)
                 aux = aux.float().to(self.device, non_blocking=True)
 
                 pred = self.model(X, aux).squeeze()
                 h = np.concatenate((h, pred.cpu().detach().numpy()), axis=None)
-                target = np.concatenate((target, y.cpu().detach().numpy()), axis=None)
 
-        return h, target
+        return h
     
     def run(self, epochs=10):
         self._train(epochs)

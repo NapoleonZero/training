@@ -317,3 +317,23 @@ class CheckpointCallback(TrainingCallback):
         if self.sync_wandb:
             wandb.save(self.path, base_path=os.path.dirname(self.path))
 
+
+class SanityCheckCallback(TrainingCallback):
+    def __init__(self, data, descriptors=None):
+        self.data = data
+        self.descriptors = descriptors
+
+    def state_dict(self):
+        return {}
+
+    def load_state_dict(self, state_dict):
+        pass
+
+    def on_train_epoch_end(self, state):
+        h = state.predict(self.data)
+        if self.descriptors is not None:
+            samples = zip(self.descriptors, self.data, h)
+        else:
+            samples = enumerate(zip(self.data, h))
+        for (i, x, y) in samples:
+            print(f'{i}: {y}')

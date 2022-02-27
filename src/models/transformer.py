@@ -134,7 +134,7 @@ class BitboardTransformer(nn.Module):
         self.cnn_projection = cnn_projection
         self.material_head = material_head
 
-        cnn_out_dim = 4
+        cnn_out_dim = 4 if self.cnn_projection else 8
         vit_channels = cnn_out_channels if self.cnn_projection else 12
 
         if self.cnn_projection:

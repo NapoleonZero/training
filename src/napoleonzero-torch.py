@@ -2,6 +2,7 @@
 
 import random
 import numpy as np
+import pandas as pd
 import torch
 import math
 from torch import nn
@@ -11,7 +12,7 @@ from models import CNN, BitboardTransformer
 from utils import download_wandb_checkpoint
 from training import TrainingLoop
 from callbacks import TrainingCallback, ProgressbarCallback, LRSchedulerCallback
-from callbacks import WandbCallback, CheckpointCallback
+from callbacks import WandbCallback, CheckpointCallback, SanityCheckCallback
 from datasets.BitboardDataset import string_to_matrix
 import sys
 
@@ -38,6 +39,35 @@ def read_bitboards(csv):
   bitboards = csv.split(',')
   return np.array([string_to_matrix(b) for b in bitboards])
 
+def read_positions(file):
+    """ Read positions from file and returns the following information:
+        - descriptors (either fen of description string) list
+        - positions (bitboards) tensor
+        - auxiliary inputs (side, ep square, castling) tensor
+    """
+    dtypes = {
+            0: 'string',                # fen position string
+            1: 'string', 2: 'string',   # bitboards
+            3: 'string', 4: 'string',   # bitboards
+            5: 'string', 6: 'string',   # bitboards
+            7: 'string', 8: 'string',   # bitboards
+            9: 'string', 10: 'string',  # bitboards
+            11: 'string', 12: 'string', # bitboards
+            13: 'uint8',                # side to move: 0 = white, 1 = black
+            14: 'uint8',                # enpassant square: 0-63, 65 is none 
+            15: 'uint8'                 # castling status: integer value
+            }
+    df = pd.read_csv(file, header=None, dtype=dtypes)
+
+    fens = df.iloc[:, 0].values
+    bitboards = df.iloc[:, 1:13].values
+    aux = df.iloc[:, 13:].values
+
+    x = [torch.as_tensor(np.array([[string_to_matrix(b) for b in bs]])) for bs in bitboards]
+    aux = [torch.as_tensor(np.array([v])) for v in aux]
+
+    return fens, x, aux
+
 def main():
     SEED = 42
     set_random_state(SEED)
@@ -50,11 +80,13 @@ def main():
     ARTIFACTS_PATH = f'{sys.path[0]}/../artifacts'
     DATASET = 'positions-12M.npz'
 
+    (check_fen, check_x, check_aux) = read_positions(f'{sys.path[0]}/sanity_check.csv')
+
     # dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=False, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
     oversample = False
     oversample_factor=None
     oversample_target=None
-    filter_threshold=200
+    filter_threshold=20
     dataset = BitboardDataset(
                 dir=DRIVE_PATH, filename=DATASET, seed=SEED,
                 preload=True,
@@ -64,10 +96,7 @@ def main():
                 oversample_target=oversample_target,
                 debug=True
                 )
-    print('Filtering dataset')
-    # x[0] = bitboards, x[1] = aux, x[2] = score
     dataset = FilteredDataset(dataset, lambda x: abs(x[2]) < filter_threshold)
-    print('Done filtering')
 
     patch_size = 1
     # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
@@ -141,6 +170,11 @@ def main():
 
     epochs = config['epochs']
 
+    sanity_check_callback = SanityCheckCallback(
+            data=list(zip(check_x, check_aux)),
+            descriptors=check_fen
+            )
+
     #TODO: maybe pass config as parameter
     training_loop = TrainingLoop(
             model,
@@ -182,13 +216,21 @@ def main():
                     metric='val_loss',
                     sync_wandb=True,
                     debug=True
-                    )
+                    ),
+                sanity_check_callback
                 ]
             )
+    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/139444au', 'checkpoint.pt')
+    # training_loop.load_state(checkpoint)
     training_loop.run(epochs=epochs)
 
-    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/36q9akms', 'checkpoint.pt')
-    # training_loop.load_state(checkpoint)
-    # training_loop.run(epochs=epochs)
+    # evaluate(sanity_check_callback, training_loop)
+    
+
+def evaluate(sanity_check_callback, training_loop):
+    print(f'Test dataset evaluation: {training_loop.evaluate()}')
+    print('Sanity check positions evaluation:')
+    sanity_check_callback.on_train_epoch_end(training_loop)
+
 if __name__ == '__main__':
     main()
