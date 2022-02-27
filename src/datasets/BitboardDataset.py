@@ -246,6 +246,12 @@ class BitboardDataset(Dataset):
                 target = self.scores[idx]
                 aux = self.aux[idx]
 
+        if self.transform:
+            (features, aux) = self.transform(features, aux)
+
+        if self.target_transform:
+            target = self.target_transform(target)
+
         return torch.from_numpy(features), torch.from_numpy(aux), target
 
     # def split(self, train_p=0.7, val_p=0.15, test_p=0.15, seed=None, oversample=False):

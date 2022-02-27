@@ -84,9 +84,10 @@ def main():
 
     # dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=False, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
     oversample = False
-    oversample_factor=None
-    oversample_target=None
-    filter_threshold=20
+    oversample_factor = None
+    oversample_target = None
+    filter_threshold = 20
+    mate_value = filter_threshold * 0.9999
     dataset = BitboardDataset(
                 dir=DRIVE_PATH, filename=DATASET, seed=SEED,
                 preload=True,
@@ -94,6 +95,7 @@ def main():
                 oversample=oversample,
                 oversample_factor=oversample_factor,
                 oversample_target=oversample_target,
+                # target_transform=(lambda y: y if abs(y) < 300 or abs(y) == np.inf else np.sign(y)*mate_value),
                 debug=True
                 )
     dataset = FilteredDataset(dataset, lambda x: abs(x[2]) < filter_threshold)
