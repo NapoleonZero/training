@@ -150,7 +150,7 @@ class BitboardDataset(Dataset):
         if self.debug:
             print('Concatenating datasets')
         df_merged = pd.concat(dfs, axis=0, ignore_index=True)
-        # df_merged = self._filter_scores(df_merged, scaled=False)
+        df_merged = self._filter_scores(df_merged, scaled=False)
         gc.collect()
 
         
@@ -163,9 +163,10 @@ class BitboardDataset(Dataset):
 
     def _filter_scores(self, ds, scaled=False):
         """ Remove positions with too high scores """
-        if scaled:
-            return ds[np.abs(ds[17]) < 2000] 
-        return ds[np.abs(ds[17]) < 2000*100]
+        return ds[np.abs(ds[17]) < np.inf]
+        # if scaled:
+        #     return ds[np.abs(ds[17]) < 2000] 
+        # return ds[np.abs(ds[17]) < 2000*100]
 
     def _preprocess_ds(self, ds):
         """ Preprocess dataset in place.
@@ -175,7 +176,7 @@ class BitboardDataset(Dataset):
                 - numpy array of scores
         """
 
-        ds[17] /= 100.0 # we divide by 100 so that score(pawn) = 1
+        # ds[17] /= 100.0 # we divide by 100 so that score(pawn) = 1
         # change black's score perspective: always evaluate white's position
         ds.iloc[(ds.iloc[:, 13] == 1).values, 17] *= -1.0
 
@@ -209,7 +210,7 @@ class BitboardDataset(Dataset):
         for i in range(1, 13):
             row[i] = string_to_array(row[i])
 
-        row[17:] /= 100.0 # we divide by 100 so that score(pawn) = 1
+        # row[17:] /= 100.0 # we divide by 100 so that score(pawn) = 1
 
         # change black's score perspective: always evaluate white's position
         if row[13] == 1:
