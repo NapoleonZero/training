@@ -3,13 +3,17 @@
 import random
 import numpy as np
 import pandas as pd
-import torch
 import math
+import torch
 from torch import nn
+import torch.nn.utils.prune as prune
+import torch.nn.functional as F
+from torch.utils.mobile_optimizer import optimize_for_mobile
+from torch._C import MobileOptimizerType
 
 from datasets import BitboardDataset, FilteredDataset
 from models import CNN, BitboardTransformer
-from utils import download_wandb_checkpoint
+from utils import download_wandb_checkpoint, save_wandb_file
 from training import TrainingLoop
 from callbacks import TrainingCallback, ProgressbarCallback, LRSchedulerCallback
 from callbacks import WandbCallback, CheckpointCallback, SanityCheckCallback
@@ -78,7 +82,7 @@ def main():
 
     DRIVE_PATH = f'{sys.path[0]}/../datasets'
     ARTIFACTS_PATH = f'{sys.path[0]}/../artifacts'
-    DATASET = 'positions-12M.npz'
+    DATASET = 'positions-depth10-12M.npz'
 
     (check_fen, check_x, check_aux) = read_positions(f'{sys.path[0]}/sanity_check.csv')
 
@@ -86,7 +90,7 @@ def main():
     oversample = False
     oversample_factor = None
     oversample_target = None
-    filter_threshold = 20
+    filter_threshold = 2000 
     mate_value = filter_threshold * 0.9999
     dataset = BitboardDataset(
                 dir=DRIVE_PATH, filename=DATASET, seed=SEED,
@@ -95,6 +99,7 @@ def main():
                 oversample=oversample,
                 oversample_factor=oversample_factor,
                 oversample_target=oversample_target,
+                # target_transform=(lambda y: y * score_scale), # so that we can the quantize without losing too much precision
                 # target_transform=(lambda y: y if abs(y) < 300 or abs(y) == np.inf else np.sign(y)*mate_value),
                 debug=True
                 )
@@ -114,14 +119,14 @@ def main():
             'filter-threshold': filter_threshold,
             'cnn-projection': True,
             'cnn-output-channels': 128,
-            'cnn-layers': 4,
+            'cnn-layers': 3,
             'cnn-kernel-size': 3,
             'cnn-residual': True,
             'cnn-pool': True,
             'vit-patch-size': patch_size,
             'vit-dim': 128,
-            'vit-depth': 6,
-            'vit-heads': 16,
+            'vit-depth': 3,
+            'vit-heads': 8,
             'vit-mlp-dim': 256,
             'vit-dropout': 0.1,
             'vit-emb-dropout': 0.0,
@@ -135,7 +140,7 @@ def main():
             'lr-restart': False,
             'min-lr': 1e-6,
             'adam-betas': (0.9, 0.999),
-            'epochs': 200,
+            'epochs': 100,
             'train-split-perc': 0.975,
             'val-split-perc': 0.0125,
             'test-split-perc': 0.0125,
@@ -176,6 +181,19 @@ def main():
             data=list(zip(check_x, check_aux)),
             descriptors=check_fen
             )
+    wandb_callback = WandbCallback(
+            project_name='napoleon-zero-pytorch',
+            entity='marco-pampaloni',
+            config=config,
+            tags=['test-new-dataset-12M']
+            )
+    checkpoint_callback = CheckpointCallback(
+            path=ARTIFACTS_PATH + '/checkpoint.pt',
+            save_best=True,
+            metric='val_loss',
+            sync_wandb=True,
+            debug=True
+            )
 
     #TODO: maybe pass config as parameter
     training_loop = TrainingLoop(
@@ -206,28 +224,41 @@ def main():
                 ProgressbarCallback(
                     epochs=epochs,
                     width=20),
-                WandbCallback(
-                    project_name='napoleon-zero-pytorch',
-                    entity='marco-pampaloni',
-                    config=config,
-                    tags=['test-new-dataset-12M']
-                    ),
-                CheckpointCallback(
-                    path=ARTIFACTS_PATH + '/checkpoint.pt',
-                    save_best=True,
-                    metric='val_loss',
-                    sync_wandb=True,
-                    debug=True
-                    ),
+                wandb_callback,
+                checkpoint_callback,
                 sanity_check_callback
                 ]
             )
-    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/139444au', 'checkpoint.pt')
-    # training_loop.load_state(checkpoint)
     training_loop.run(epochs=epochs)
 
-    # evaluate(sanity_check_callback, training_loop)
-    
+    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/ejxh95s4', 'checkpoint.pt', device='cpu')
+    # training_loop.load_state(checkpoint)
+    # wandb_callback.init()
+
+    serialize(model, f'{ARTIFACTS_PATH}/script.pt')
+
+def quantize(model):
+    model = torch.quantization.quantize_dynamic(
+            model.to('cpu'), qconfig_spec={torch.nn.Linear}, dtype=torch.qint8, inplace=True
+            )
+
+    return model
+
+def serialize(model, path):
+    model.eval()
+    model = model.to('cpu')
+    model = quantize(model)
+    # model = model.to('cuda')
+    serialized_model = torch.jit.script(model)
+    serialized_model = optimize_for_mobile(
+            serialized_model,
+            optimization_blocklist=set([MobileOptimizerType.INSERT_FOLD_PREPACK_OPS, MobileOptimizerType.HOIST_CONV_PACKED_PARAMS]),
+            backend='CPU')
+    serialized_model = torch.jit.optimize_for_inference(serialized_model)
+    serialized_model.save(path)
+    save_wandb_file(path)
+    return serialized_model
+
 
 def evaluate(sanity_check_callback, training_loop):
     print(f'Test dataset evaluation: {training_loop.evaluate()}')

@@ -7,6 +7,8 @@ datasets/datasets/sf-eval-full.epd
 datasets/datasets/sf11-42M.csv
 datasets/datasets/sf11-10M.npz
 datasets/datasets/positions-12M.csv
+datasets/datasets/positions-12M.npz
+datasets/datasets/positions-depth10-12M.csv
 README.md
 NapoleonPP
 .git

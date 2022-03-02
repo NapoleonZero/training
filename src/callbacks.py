@@ -212,10 +212,8 @@ class WandbCallback(TrainingCallback):
     def load_state_dict(self, state_dict):
         self.run_id = state_dict.get('run_id', None)
 
-    def on_train_start(self, state):
-        super().on_train_start(state)
-        # Create a new wandb run
-        self.run = wandb.init(
+    def init(self):
+        return wandb.init(
                 id=self.run_id,
                 project=self.project_name,
                 entity=self.entity,
@@ -224,6 +222,12 @@ class WandbCallback(TrainingCallback):
                 tags=self.tags,
                 save_code=self.save_code,
                 reinit=True)
+
+
+    def on_train_start(self, state):
+        super().on_train_start(state)
+        # Create a new wandb run
+        self.run = self.init()
         self.run_id = self.run.id
 
     def on_train_end(self, state):

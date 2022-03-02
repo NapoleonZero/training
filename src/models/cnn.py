@@ -1,7 +1,11 @@
 import torch
 from torch import nn
+from torch.jit import Final
 
 class Conv2dBlock(nn.Module):
+    normalize: Final[bool]
+    pool: Final[bool]
+
     def __init__(self,
                  in_channels: int,
                  out_channels: int,

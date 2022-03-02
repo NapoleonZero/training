@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.jit import Final
 
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
@@ -9,6 +10,8 @@ def pair(t):
     return t if isinstance(t, tuple) else (t, t)
 
 class ViT(nn.Module):
+    pool: Final[str]
+
     def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, pool = 'cls', channels = 3, dim_head = 64, dropout = 0., emb_dropout = 0.):
         super().__init__()
         image_height, image_width = pair(image_size)
@@ -85,6 +88,8 @@ class ViT(nn.Module):
 
 # TODO: try other normalization layers
 class CNN(nn.Module):
+    residual: Final[bool]
+
     def __init__(self, in_channels, out_channels, layers=4, kernel_size=2, residual=True, pool=True):
         super(CNN, self).__init__()
         self.in_channels = in_channels
@@ -95,13 +100,13 @@ class CNN(nn.Module):
         for i in range(layers):
             # Input layer
             if i == 0:
-                conv_layers.append(Conv2dBlock(in_channels, out_channels, kernel_size=kernel_size))
+                conv_layers.append(Conv2dBlock(in_channels, out_channels, kernel_size=kernel_size, padding=(1,1)))
             # Output/Pooling layer
             elif i == layers - 1:
-                conv_layers.append(Conv2dBlock(out_channels, out_channels, kernel_size=kernel_size, pool=pool))
+                conv_layers.append(Conv2dBlock(out_channels, out_channels, kernel_size=kernel_size, padding=(1,1), pool=pool))
             # Intermediate layer
             else:
-                conv_layers.append(Conv2dBlock(out_channels, out_channels, kernel_size=kernel_size))
+                conv_layers.append(Conv2dBlock(out_channels, out_channels, kernel_size=kernel_size, padding=(1,1)))
 
         self.conv_stack = nn.ModuleList(conv_layers)
 
@@ -115,6 +120,9 @@ class CNN(nn.Module):
         return y
 
 class BitboardTransformer(nn.Module):
+    cnn_projection: Final[bool]
+    material_head: Final[bool]
+
     def __init__(self,
                  cnn_projection=True,
                  cnn_out_channels=128,
