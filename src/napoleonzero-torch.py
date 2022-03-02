@@ -229,12 +229,12 @@ def main():
                 sanity_check_callback
                 ]
             )
-    training_loop.run(epochs=epochs)
+    # training_loop.run(epochs=epochs)
 
-    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/ejxh95s4', 'checkpoint.pt', device='cpu')
-    # training_loop.load_state(checkpoint)
-    # wandb_callback.init()
+    checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/2drh6p7s', 'checkpoint.pt', device=device)
+    training_loop.load_state(checkpoint)
 
+    wandb_callback.init()
     serialize(model, f'{ARTIFACTS_PATH}/script.pt')
 
 def quantize(model):
@@ -248,7 +248,7 @@ def serialize(model, path):
     model.eval()
     model = model.to('cpu')
     model = quantize(model)
-    # model = model.to('cuda')
+    model = model.to('cuda')
     serialized_model = torch.jit.script(model)
     serialized_model = optimize_for_mobile(
             serialized_model,
