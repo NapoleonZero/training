@@ -323,10 +323,10 @@ class CheckpointCallback(TrainingCallback):
 
 
 class SanityCheckCallback(TrainingCallback):
-    def __init__(self, data, descriptors=None, scale=None):
+    def __init__(self, data, descriptors=None, target_transform=None):
         self.data = data
         self.descriptors = descriptors
-        self.scale = scale
+        self.target_transform = target_transform
 
     def state_dict(self):
         return {}
@@ -341,6 +341,6 @@ class SanityCheckCallback(TrainingCallback):
         else:
             samples = enumerate(zip(self.data, h))
         for (i, x, y) in samples:
-            if self.scale:
-                y = y / self.scale
+            if self.target_transform:
+                y = self.target_transform(y)
             print(f'{i}: {y}')

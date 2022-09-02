@@ -190,7 +190,11 @@ class TrainingLoop():
         return h
     
     def run(self, epochs=10):
-        self._train(epochs)
+        try:
+            self._train(epochs)
+        except KeyboardInterrupt:
+            print('Terminating training loop...')
+
         return self.model
 
     def clear(self):
