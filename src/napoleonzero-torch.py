@@ -12,12 +12,13 @@ from torch.utils.mobile_optimizer import optimize_for_mobile
 from torch._C import MobileOptimizerType
 
 from datasets import BitboardDataset, FilteredDataset
-from models import CNN, BitboardTransformer
+from models import CNN, BitboardTransformer, Quantized
 from utils import download_wandb_checkpoint, save_wandb_file
 from training import TrainingLoop
 from callbacks import TrainingCallback, ProgressbarCallback, LRSchedulerCallback
 from callbacks import WandbCallback, CheckpointCallback, SanityCheckCallback
 from datasets.BitboardDataset import string_to_matrix
+from losses import MSRELoss
 import sys
 
 def set_random_state(seed):
@@ -82,7 +83,7 @@ def main():
 
     DRIVE_PATH = f'{sys.path[0]}/../datasets'
     ARTIFACTS_PATH = f'{sys.path[0]}/../artifacts'
-    DATASET = 'positions-depth10-12M.npz'
+    DATASET = 'positions-depth12-12M.npz'
 
     (check_fen, check_x, check_aux) = read_positions(f'{sys.path[0]}/sanity_check.csv')
 
@@ -90,7 +91,7 @@ def main():
     oversample = False
     oversample_factor = None
     oversample_target = None
-    filter_threshold = 2000 
+    filter_threshold = 2000
     mate_value = filter_threshold * 0.9999
     dataset = BitboardDataset(
                 dir=DRIVE_PATH, filename=DATASET, seed=SEED,
@@ -101,6 +102,8 @@ def main():
                 oversample_target=oversample_target,
                 # target_transform=(lambda y: y * score_scale), # so that we can the quantize without losing too much precision
                 # target_transform=(lambda y: y if abs(y) < 300 or abs(y) == np.inf else np.sign(y)*mate_value),
+                # target_transform=(lambda y: np.sign(y) * np.log(1 + np.abs(y))),
+                # target_transform=(lambda y: np.sign(y) * np.sqrt(np.abs(y))),
                 debug=True
                 )
     dataset = FilteredDataset(dataset, lambda x: abs(x[2]) < filter_threshold)
@@ -118,29 +121,29 @@ def main():
             'oversample_target': oversample_target,
             'filter-threshold': filter_threshold,
             'cnn-projection': True,
-            'cnn-output-channels': 128,
-            'cnn-layers': 3,
+            'cnn-output-channels': 256,
+            'cnn-layers': 2,
             'cnn-kernel-size': 3,
             'cnn-residual': True,
             'cnn-pool': True,
             'vit-patch-size': patch_size,
-            'vit-dim': 128,
+            'vit-dim': 32,
             'vit-depth': 3,
             'vit-heads': 8,
-            'vit-mlp-dim': 256,
+            'vit-mlp-dim': 128,
             'vit-dropout': 0.1,
-            'vit-emb-dropout': 0.0,
+            'vit-emb-dropout': 0.1,
             'material_head': False,
             'weight-decay': 0.0,
             'learning-rate': 1e-3,
-            'lr-warmup-steps': 1000,
+            'lr-warmup-steps': 10000,
             'lr-cosine-annealing': True,
-            'lr-cosine-tmax': 200,
+            'lr-cosine-tmax': 1000,
             'lr-cosine-factor': 1,
             'lr-restart': False,
             'min-lr': 1e-6,
             'adam-betas': (0.9, 0.999),
-            'epochs': 100,
+            'epochs': 1000,
             'train-split-perc': 0.975,
             'val-split-perc': 0.0125,
             'test-split-perc': 0.0125,
@@ -180,6 +183,8 @@ def main():
     sanity_check_callback = SanityCheckCallback(
             data=list(zip(check_x, check_aux)),
             descriptors=check_fen
+            # target_transform=(lambda y: np.sign(y) * (np.exp(np.abs(y)) - 1))
+            # target_transform=(lambda y: np.sign(y)*(y**2))
             )
     wandb_callback = WandbCallback(
             project_name='napoleon-zero-pytorch',
@@ -229,31 +234,26 @@ def main():
                 sanity_check_callback
                 ]
             )
-    # training_loop.run(epochs=epochs)
+    model = training_loop.run(epochs=epochs)
 
-    checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/2drh6p7s', 'checkpoint.pt', device=device)
-    training_loop.load_state(checkpoint)
+    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/2353hd3v', 'checkpoint.pt', device=device)
+    # training_loop.load_state(checkpoint)
 
-    wandb_callback.init()
-    serialize(model, f'{ARTIFACTS_PATH}/script.pt')
+    # wandb_callback.init()
+    # serialize(model, training_loop, f'{ARTIFACTS_PATH}/script.pt', optimize=False)
 
-def quantize(model):
-    model = torch.quantization.quantize_dynamic(
-            model.to('cpu'), qconfig_spec={torch.nn.Linear}, dtype=torch.qint8, inplace=True
-            )
-
-    return model
-
-def serialize(model, path):
+def serialize(model, training_loop, path, optimize=True):
+    # torch._C._jit_set_profiling_executor(False)
     model.eval()
-    model = model.to('cpu')
-    model = quantize(model)
-    model = model.to('cuda')
+
     serialized_model = torch.jit.script(model)
-    serialized_model = optimize_for_mobile(
-            serialized_model,
-            optimization_blocklist=set([MobileOptimizerType.INSERT_FOLD_PREPACK_OPS, MobileOptimizerType.HOIST_CONV_PACKED_PARAMS]),
-            backend='CPU')
+    if optimize:
+        serialized_model = optimize_for_mobile(
+                serialized_model,
+                optimization_blocklist=set([MobileOptimizerType.INSERT_FOLD_PREPACK_OPS, MobileOptimizerType.HOIST_CONV_PACKED_PARAMS]),
+                backend='CPU')
+
+    serialized_model = torch.jit.freeze(serialized_model)
     serialized_model = torch.jit.optimize_for_inference(serialized_model)
     serialized_model.save(path)
     save_wandb_file(path)
