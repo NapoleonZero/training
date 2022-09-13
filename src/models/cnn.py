@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torch.jit import Final
+from torchvision.ops import SqueezeExcitation
 
 class DepthwiseSeparable2d(nn.Module):
     def __init__(self,
@@ -61,6 +62,7 @@ class DepthwiseSeparable2d(nn.Module):
 
 
 
+# TODO: squeeze and excitation
 class Conv2dBlock(nn.Module):
     normalize: Final[bool]
     pool: Final[bool]
@@ -74,7 +76,8 @@ class Conv2dBlock(nn.Module):
                  activation=nn.ReLU(),
                  padding='same',
                  normalize=True,
-                 pool=False):
+                 pool=False,
+                 se_layer=False):
         super(Conv2dBlock, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -85,6 +88,7 @@ class Conv2dBlock(nn.Module):
         self.padding = padding
         self.normalize = normalize
         self.pool = pool
+        self.se_layer = se_layer
 
         self.conv = nn.Conv2d(
                 self.in_channels, self.out_channels,
@@ -97,6 +101,11 @@ class Conv2dBlock(nn.Module):
         if self.normalize:
             self.norm_layer = nn.BatchNorm2d(self.out_channels)
             # self.norm_layer = nn.GroupNorm(1, self.out_channels)
+
+        if self.se_layer:
+            squeeze_channels = max(1, self.out_channels // 4)
+            self.se = SqueezeExcitation(self.out_channels, squeeze_channels)
+
         if self.pool:
             self.pool_layer = nn.MaxPool2d(kernel_size=(2,2))
 
@@ -104,6 +113,8 @@ class Conv2dBlock(nn.Module):
         x = self.conv(x)
         if self.normalize:
             x = self.norm_layer(x)
+        if self.se_layer:
+            x = self.se(x)
         if self.pool:
             x = self.pool_layer(x)
         return x

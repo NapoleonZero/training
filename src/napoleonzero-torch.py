@@ -12,7 +12,7 @@ from torch.utils.mobile_optimizer import optimize_for_mobile
 from torch._C import MobileOptimizerType
 
 from datasets import BitboardDataset, FilteredDataset
-from models import CNN, BitboardTransformer, Quantized
+from models import CNN, BitboardTransformer 
 from utils import download_wandb_checkpoint, save_wandb_file
 from training import TrainingLoop
 from callbacks import TrainingCallback, ProgressbarCallback, LRSchedulerCallback
@@ -84,7 +84,7 @@ def main():
 
     DRIVE_PATH = f'{sys.path[0]}/../datasets'
     ARTIFACTS_PATH = f'{sys.path[0]}/../artifacts'
-    DATASET = 'positions-depth12-12M.npz'
+    DATASET = 'positions-depth12-tiny.npz'
 
     (check_fen, check_x, check_aux) = read_positions(f'{sys.path[0]}/sanity_check.csv')
 
@@ -131,6 +131,7 @@ def main():
             'cnn-residual': True,
             'cnn-pool': False,
             'cnn-depthwise': False,
+            'cnn-squeeze': True,
             'vit-patch-size': patch_size,
             'vit-dim': 128,
             'vit-depth': 6,
@@ -174,6 +175,7 @@ def main():
                 cnn_residual=config['cnn-residual'],
                 cnn_pool=config['cnn-pool'],
                 cnn_depthwise=config['cnn-depthwise'],
+                cnn_squeeze=config['cnn-squeeze'],
                 hierarchical=config['vit-hierarchical'],
                 hierarchical_blocks=config['vit-hierarchical-blocks'],
                 stages_depth=config['vit-stages-depth'],

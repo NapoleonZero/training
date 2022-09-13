@@ -244,7 +244,7 @@ class ViT(nn.Module):
 class CNN(nn.Module):
     residual: Final[bool]
 
-    def __init__(self, in_channels, out_channels, layers=4, kernel_size=2, residual=True, pool=True, depthwise=False):
+    def __init__(self, in_channels, out_channels, layers=4, kernel_size=2, residual=True, pool=True, depthwise=False, squeeze=False):
         super(CNN, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -258,13 +258,13 @@ class CNN(nn.Module):
             pad = (1,1) if kernel_size > 2 else (0, 0) # TODO: causes problem with mobile optimizations
             # Input layer
             if i == 0:
-                conv_layers.append(block(in_channels, out_channels, kernel_size=kernel_size, padding=pad))
+                conv_layers.append(block(in_channels, out_channels, kernel_size=kernel_size, padding=pad, se_layer=squeeze))
             # Output/Pooling layer
             elif i == layers - 1:
-                conv_layers.append(block(out_channels, out_channels, kernel_size=kernel_size, padding=pad, pool=pool))
+                conv_layers.append(block(out_channels, out_channels, kernel_size=kernel_size, padding=pad, pool=pool, se_layer=squeeze))
             # Intermediate layer
             else:
-                conv_layers.append(block(out_channels, out_channels, kernel_size=kernel_size, padding=pad))
+                conv_layers.append(block(out_channels, out_channels, kernel_size=kernel_size, padding=pad, se_layer=squeeze))
 
         self.conv_stack = nn.ModuleList(conv_layers)
 
@@ -290,6 +290,7 @@ class BitboardTransformer(nn.Module):
                  cnn_residual=True,
                  cnn_pool=True,
                  cnn_depthwise=False,
+                 cnn_squeeze=False,
                  hierarchical=False,
                  hierarchical_blocks=1,
                  stages_depth=[],
@@ -336,7 +337,8 @@ class BitboardTransformer(nn.Module):
                         kernel_size=cnn_kernel_size,
                         residual=cnn_residual,
                         pool=cnn_pool,
-                        depthwise=cnn_depthwise
+                        depthwise=cnn_depthwise,
+                        squeeze=cnn_squeeze
                         )
         self.vit = ViT(
                     image_size=cnn_out_dim,
