@@ -75,6 +75,7 @@ def read_positions(file):
 
 def main():
     SEED = 42
+    torch.backends.cuda.matmul.allow_tf32 = True
     set_random_state(SEED)
 
     # Get cpu or gpu device for training.
@@ -87,11 +88,11 @@ def main():
 
     (check_fen, check_x, check_aux) = read_positions(f'{sys.path[0]}/sanity_check.csv')
 
-    # dataset = BitboardDataset(dir=DRIVE_PATH, filename=DATASET, glob=False, preload=True, preload_chunks=True, fraction=1.0, seed=SEED, debug=True)
     oversample = False
     oversample_factor = None
     oversample_target = None
-    filter_threshold = 2000
+    target_scale = 1e-3
+    filter_threshold = 2000 * target_scale
     mate_value = filter_threshold * 0.9999
     dataset = BitboardDataset(
                 dir=DRIVE_PATH, filename=DATASET, seed=SEED,
@@ -100,15 +101,18 @@ def main():
                 oversample=oversample,
                 oversample_factor=oversample_factor,
                 oversample_target=oversample_target,
+                fraction=1.0,
+                target_transform=(lambda y: y * target_scale),
                 # target_transform=(lambda y: y * score_scale), # so that we can the quantize without losing too much precision
                 # target_transform=(lambda y: y if abs(y) < 300 or abs(y) == np.inf else np.sign(y)*mate_value),
-                # target_transform=(lambda y: np.sign(y) * np.log(1 + np.abs(y))),
-                # target_transform=(lambda y: np.sign(y) * np.sqrt(np.abs(y))),
                 debug=True
                 )
     dataset = FilteredDataset(dataset, lambda x: abs(x[2]) < filter_threshold)
 
+    base_lr = 1.0e-4
+    batch_size = 2**10
     patch_size = 1
+    epochs = 100
     # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
     # TODO: move to a YAML file
     config = {
@@ -122,32 +126,42 @@ def main():
             'filter-threshold': filter_threshold,
             'cnn-projection': True,
             'cnn-output-channels': 256,
-            'cnn-layers': 2,
+            'cnn-layers': 3,
             'cnn-kernel-size': 3,
             'cnn-residual': True,
-            'cnn-pool': True,
+            'cnn-pool': False,
+            'cnn-depthwise': False,
             'vit-patch-size': patch_size,
-            'vit-dim': 32,
-            'vit-depth': 3,
+            'vit-dim': 128,
+            'vit-depth': 6,
             'vit-heads': 8,
-            'vit-mlp-dim': 128,
-            'vit-dropout': 0.1,
-            'vit-emb-dropout': 0.1,
+            'vit-hierarchical': True,
+            'vit-hierarchical-blocks': 1,
+            'vit-stages-depth': [3, 3],
+            'vit-merging-strategy': '1d', # TODO: test 2d mode more throughly
+            'vit-mlp-dim': 256,
+            'vit-dropout': 0.05,
+            'vit-emb-dropout': 0.0,
+            'vit-stochastic-depth-p': 0.0,
+            'vit-stochastic-depth-mode': 'row',
+            'vit-random-patch-projection': False,
+            'vit-channel-pos-encoding': True,
+            'vit-learned-pos-encoding': False,
             'material_head': False,
-            'weight-decay': 0.0,
-            'learning-rate': 1e-3,
+            'weight-decay': 1e-2,
+            'learning-rate': base_lr * batch_size / 256,
             'lr-warmup-steps': 10000,
             'lr-cosine-annealing': True,
-            'lr-cosine-tmax': 1000,
+            'lr-cosine-tmax': epochs,
             'lr-cosine-factor': 1,
             'lr-restart': False,
             'min-lr': 1e-6,
             'adam-betas': (0.9, 0.999),
-            'epochs': 1000,
+            'epochs': epochs,
             'train-split-perc': 0.975,
             'val-split-perc': 0.0125,
             'test-split-perc': 0.0125,
-            'batch-size': 2**12,
+            'batch-size': batch_size,
             'shuffle': True,
             'mixed-precision': True,
             }
@@ -159,19 +173,31 @@ def main():
                 cnn_kernel_size=config['cnn-kernel-size'],
                 cnn_residual=config['cnn-residual'],
                 cnn_pool=config['cnn-pool'],
+                cnn_depthwise=config['cnn-depthwise'],
+                hierarchical=config['vit-hierarchical'],
+                hierarchical_blocks=config['vit-hierarchical-blocks'],
+                stages_depth=config['vit-stages-depth'],
+                merging_strategy=config['vit-merging-strategy'],
+                stochastic_depth_p=config['vit-stochastic-depth-p'],
+                stochastic_depth_mode=config['vit-stochastic-depth-mode'],
                 patch_size=config['vit-patch-size'],
                 dim=config['vit-dim'],
                 depth=config['vit-depth'],
                 heads=config['vit-heads'],
                 mlp_dim=config['vit-mlp-dim'],
+                random_patch_projection=config['vit-random-patch-projection'],
+                channel_pos_encoding=config['vit-channel-pos-encoding'],
+                learned_pos_encoding=config['vit-learned-pos-encoding'],
                 material_head=config['material_head'],
                 dropout=config['vit-dropout'],
                 emb_dropout=config['vit-emb-dropout']
             ).to(device, memory_format=torch.channels_last)
     print_summary(model)
 
-    loss_fn = nn.MSELoss()
-    optimizer = torch.optim.RAdam(
+    # loss_fn = nn.MSELoss()
+    loss_fn = MSRELoss(delta=(filter_threshold + 1))
+    # TODO: try gradient clipping
+    optimizer = torch.optim.AdamW(
             model.parameters(),
             betas=config['adam-betas'],
             weight_decay=config['weight-decay'],
@@ -182,9 +208,8 @@ def main():
 
     sanity_check_callback = SanityCheckCallback(
             data=list(zip(check_x, check_aux)),
-            descriptors=check_fen
-            # target_transform=(lambda y: np.sign(y) * (np.exp(np.abs(y)) - 1))
-            # target_transform=(lambda y: np.sign(y)*(y**2))
+            descriptors=check_fen,
+            target_transform=(lambda y: y / target_scale)
             )
     wandb_callback = WandbCallback(
             project_name='napoleon-zero-pytorch',
@@ -196,6 +221,14 @@ def main():
             path=ARTIFACTS_PATH + '/checkpoint.pt',
             save_best=True,
             metric='val_loss',
+            sync_wandb=True,
+            debug=True
+            )
+    anomaly_detection = CheckpointCallback(
+            path=ARTIFACTS_PATH + '/anomaly_checkpoint.pt',
+            save_best=False,
+            detect_anomaly=True,
+            metric='mean_loss',
             sync_wandb=True,
             debug=True
             )
@@ -215,7 +248,7 @@ def main():
             mixed_precision=config['mixed-precision'],
             verbose=1,
             seed=SEED,
-            val_metrics={'l1': nn.L1Loss()},
+            val_metrics={'l1': nn.L1Loss(), 'mse': nn.MSELoss()},
             callbacks=[
                 LRSchedulerCallback(
                     optimizer,
@@ -231,13 +264,16 @@ def main():
                     width=20),
                 wandb_callback,
                 checkpoint_callback,
+                anomaly_detection,
                 sanity_check_callback
                 ]
             )
     model = training_loop.run(epochs=epochs)
 
-    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/2353hd3v', 'checkpoint.pt', device=device)
+    # torch.autograd.set_detect_anomaly(True)
+    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/13zi3z33', 'anomaly_checkpoint.pt', device=device)
     # training_loop.load_state(checkpoint)
+    # model = training_loop.run(epochs=epochs)
 
     # wandb_callback.init()
     # serialize(model, training_loop, f'{ARTIFACTS_PATH}/script.pt', optimize=False)
