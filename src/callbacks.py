@@ -256,19 +256,23 @@ class WandbCallback(TrainingCallback):
 
 
 class CheckpointCallback(TrainingCallback):
-    def __init__(self, path, save_best=True, metric='val_loss', frequency=None, mode='min', sync_wandb=False, debug=False):
+    def __init__(self, path, save_best=True, detect_anomaly=False, metric='val_loss', frequency=None, mode='min', sync_wandb=False, debug=False):
         super().__init__()
         self.path = path
         self.save_best = save_best
+        self.detect_anomaly = detect_anomaly
         self.metric = metric
         self.frequency = frequency
         self.mode = mode
         self.sync_wandb = sync_wandb
         self.debug = debug
+        self.anomaly_detected = False
 
         assert path, 'path must not be None'
-        assert save_best or frequency, 'Either one between save_best and frequency must be provided'
-        assert not (save_best and frequency), 'Only one between save_best and frequency can be provided'
+        assert save_best or frequency or detect_anomaly, 'Either one among save_best, frequency and detect_anomaly must be provided'
+        assert not (save_best and frequency), 'Only one among save_best, frequency and detect_anomaly can be provided'
+        assert not (save_best and detect_anomaly), 'Only one among save_best, frequency and detect_anomaly can be provided'
+        assert not (frequency and detect_anomaly), 'Only one among save_best, frequency and detect_anomaly can be provided'
         assert (not save_best) or (mode == 'min' or mode == 'max'), "If save_best is True, then mode can either be 'min' or 'max'"
         assert (not save_best) or metric, 'If save_best = True, then a metric must be provided'
 
@@ -278,6 +282,7 @@ class CheckpointCallback(TrainingCallback):
 
         if self.save_best and self.mode:
             self.minimize = mode == 'min'
+
     def state_dict(self):
         state_dict = {}
         if self.save_best:
@@ -298,6 +303,16 @@ class CheckpointCallback(TrainingCallback):
         super().on_train_epoch_end(state)
         epoch = state.get_state('epoch', 1)
         output = False
+
+        # Save model checkpoint after each epoch, until an anomaly is detected
+        if self.detect_anomaly and not self.anomaly_detected:
+            metric = state.get_last_metric(self.metric)
+            if torch.isnan(metric) or torch.isinf(metric):
+                self.anomaly_detected = True
+                print('Anomaly detected, disabling model checkpointing')
+            else:
+                self._save_checkpoint(state)
+                output = True
 
         if self.frequency and epoch % self.frequency == 0:
             self._save_checkpoint(state)
