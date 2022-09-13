@@ -89,6 +89,10 @@ class BitboardDataset(Dataset):
             self.oversample_scores = self.scores[idx]
             self.oversample_frequency = math.ceil(self.__len__() / len(self.oversample_dataset) * (self.oversample_factor - 1))
         
+    def _fraction(self, ds):
+        """ Return `self.fraction`% of the given dataset """
+        # TODO: use this everywhere needed
+        return ds[:int(len(ds)*self.fraction)]
 
     def _load_dump(self, dir, npz):
         """ 
@@ -100,7 +104,7 @@ class BitboardDataset(Dataset):
             scores = nps['scores'].copy()
         gc.collect()
 
-        return bitboards, aux, scores
+        return self._fraction(bitboards), self._fraction(aux), self._fraction(scores)
 
     def _join_datasets(self, dir, glob_str):
         dfs = []
