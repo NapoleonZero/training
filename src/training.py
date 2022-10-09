@@ -5,6 +5,7 @@ from torch.optim.lr_scheduler import LinearLR, ReduceLROnPlateau
 from datasets.utils import split_dataset
 from contextlib import ExitStack
 import numpy as np
+import gc
 
 class TrainingLoop():
     def __init__(self,
@@ -56,13 +57,6 @@ class TrainingLoop():
                 self.test_p)
 
     def _make_dataloaders(self, dataset, train_p, val_p, test_p):
-        # train_ds, val_ds, test_ds = dataset.split(
-        #         train_p,
-        #         val_p,
-        #         test_p,
-        #         self.seed,
-        #         oversample=False)
-
         train_ds, val_ds, test_ds = split_dataset(dataset,
                 train_p, val_p, test_p,
                 seed=self.seed)
@@ -70,15 +64,15 @@ class TrainingLoop():
                 batch_size=self.batch_size,
                 shuffle=self.shuffle,
                 pin_memory=True,
-                num_workers=4,
-                prefetch_factor=2,
+                num_workers=2,
+                prefetch_factor=4,
                 persistent_workers=False)
         val_dl = DataLoader(val_ds,
                 batch_size=self.batch_size,
                 shuffle=False,
                 pin_memory=True,
-                num_workers=4,
-                prefetch_factor=2,
+                num_workers=2,
+                prefetch_factor=4,
                 persistent_workers=False)
         test_dl = DataLoader(test_ds,
                 batch_size=self.batch_size,
@@ -142,7 +136,7 @@ class TrainingLoop():
                     loss.backward()
                     self.optimizer.step()
 
-                self.on_train_batch_end(batch, loss)
+                self.on_train_batch_end(batch, loss.detach())
 
             val_loss, other_metrics = self._test(self.val_dataloader, self.val_metrics)
             self.on_validation_end(val_loss, other_metrics)
@@ -163,10 +157,10 @@ class TrainingLoop():
                 y = y.float().to(self.device, non_blocking=True)
                 aux = aux.float().to(self.device, non_blocking=True)
 
-                pred = self.model(X, aux).squeeze()
-                test_loss += self.loss_fn(pred, y)
+                pred = self.model(X, aux).squeeze().detach()
+                test_loss += self.loss_fn(pred, y).detach()
                 for name, fn in metrics.items():
-                    test_metrics[name] += fn(pred, y)
+                    test_metrics[name] += fn(pred, y).detach()
 
         test_loss /= num_batches
         test_metrics = {k: v / num_batches for k, v in test_metrics.items()}
@@ -278,6 +272,10 @@ class TrainingLoop():
         self.update_metric('mean_loss', mean_loss)
         for c in self.callbacks: c.on_train_batch_end(self)
 
+        if batch_num % 1000 == 0:
+            torch.cuda.empty_cache()
+            gc.collect()
+
     def on_train_epoch_start(self, epoch_num):
         self.update_metric('mean_loss', 0.0)
         self.update_state('epoch', epoch_num)
@@ -288,6 +286,7 @@ class TrainingLoop():
         # the training stopped mid-epoch
         self.update_state('epoch', epoch_num + 1)
         for c in self.callbacks: c.on_train_epoch_end(self)
+        torch.cuda.empty_cache()
 
     def on_validation_batch_start(self):
         for c in self.callbacks: c.on_validation_batch_start(self)
@@ -304,6 +303,7 @@ class TrainingLoop():
         for metric, value in other_metrics.items():
             self.update_metric(f'val_{metric}', value)
         for c in self.callbacks: c.on_validation_end(self)
+        torch.cuda.empty_cache()
 
     # TODO: maybe use an other class for evaluation?
     def evaluate(self):
