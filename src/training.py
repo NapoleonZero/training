@@ -6,7 +6,6 @@ from datasets.utils import split_dataset
 from contextlib import ExitStack
 import numpy as np
 import gc
-from datasets.FilteredDataset import FilteredSampler, FilteredBatchSampler
 
 class TrainingLoop():
     def __init__(self,
