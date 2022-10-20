@@ -338,10 +338,22 @@ class CheckpointCallback(TrainingCallback):
 
 
 class SanityCheckCallback(TrainingCallback):
-    def __init__(self, data, descriptors=None, target_transform=None):
+    def __init__(self, data, descriptors=None, transform=None, target_transform=None):
         self.data = data
         self.descriptors = descriptors
+        self.transform = transform
         self.target_transform = target_transform
+
+        if self.transform:
+            self.data = [self._rebatch(self.transform(x[0], aux[0])) for (x, aux) in self.data]
+
+        self.data = self._make_tensors(self.data)
+
+    def _rebatch(self, data):
+        return (np.expand_dims(data[0], 0), np.expand_dims(data[1], 0))
+
+    def _make_tensors(self, data):
+        return [(torch.from_numpy(x), torch.from_numpy(aux)) for (x, aux) in data]
 
     def state_dict(self):
         return {}
