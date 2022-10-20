@@ -10,6 +10,7 @@ import torch.nn.utils.prune as prune
 import torch.nn.functional as F
 from torch.utils.mobile_optimizer import optimize_for_mobile
 from torch._C import MobileOptimizerType
+from functools import partial
 
 from datasets import BitboardDataset, FilteredDataset
 from models import CNN, BitboardTransformer 
@@ -68,10 +69,18 @@ def read_positions(file):
     bitboards = df.iloc[:, 1:13].values
     aux = df.iloc[:, 13:].values
 
-    x = [torch.as_tensor(np.array([[string_to_matrix(b) for b in bs]])) for bs in bitboards]
-    aux = [torch.as_tensor(np.array([v])) for v in aux]
+    x = [(np.array([[string_to_matrix(b) for b in bs]])) for bs in bitboards]
+    aux = [(np.array([v])) for v in aux]
 
     return fens, x, aux
+
+def rescale_bitboards(bs):
+    """ Scale each bitboard by [0.1, 0.2, ..., 0.6] relatively for both colors """
+    return np.array([bs[i] * (i%6 + 1) / 10 for i in np.arange(12)])
+
+def filter_scores(filter_threshold: int, data: tuple) -> bool:
+    """ Filter scores based on a given cutoff threshold """
+    return abs(data[2]) < filter_threshold
 
 def main():
     SEED = 42
@@ -84,7 +93,7 @@ def main():
 
     DRIVE_PATH = f'{sys.path[0]}/../datasets'
     ARTIFACTS_PATH = f'{sys.path[0]}/../artifacts'
-    DATASET = 'positions-depth12-tiny.npz'
+    DATASET = 'lichess151M-preprocessed.bin'
 
     (check_fen, check_x, check_aux) = read_positions(f'{sys.path[0]}/sanity_check.csv')
 
@@ -94,20 +103,22 @@ def main():
     target_scale = 1e-3
     filter_threshold = 2000 * target_scale
     mate_value = filter_threshold * 0.9999
+    augment_rate = 0.0
     dataset = BitboardDataset(
                 dir=DRIVE_PATH, filename=DATASET, seed=SEED,
-                preload=True,
-                from_dump=True,
+                glob=False,
+                preload=False,
+                from_dump=False,
+                low_memory=True,
                 oversample=oversample,
                 oversample_factor=oversample_factor,
                 oversample_target=oversample_target,
                 fraction=1.0,
-                target_transform=(lambda y: y * target_scale),
-                # target_transform=(lambda y: y * score_scale), # so that we can the quantize without losing too much precision
-                # target_transform=(lambda y: y if abs(y) < 300 or abs(y) == np.inf else np.sign(y)*mate_value),
+                # transform=(lambda x, aux: (rescale_bitboards(x), aux)),
+                target_transform=(lambda y: y * 100 * target_scale), # for stockfish evaluations
+                augment_rate=augment_rate,
                 debug=True
                 )
-    dataset = FilteredDataset(dataset, lambda x: abs(x[2]) < filter_threshold)
 
     base_lr = 1.0e-4
     batch_size = 2**10
@@ -115,6 +126,7 @@ def main():
     epochs = 100
     # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
     # TODO: move to a YAML file
+    # TODO: multiplying bitboards planes seems to be helpful (e.g. pawn * 0.1, bishop * 0.2, etc.)
     config = {
             'seed': SEED,
             'device': device,
@@ -124,14 +136,15 @@ def main():
             'oversample_factor': oversample_factor,
             'oversample_target': oversample_target,
             'filter-threshold': filter_threshold,
+            'augment-rate': augment_rate,
             'cnn-projection': True,
-            'cnn-output-channels': 256,
+            'cnn-output-channels': 128,
             'cnn-layers': 3,
             'cnn-kernel-size': 3,
-            'cnn-residual': True,
+            'cnn-residual': False,
             'cnn-pool': False,
             'cnn-depthwise': False,
-            'cnn-squeeze': True,
+            'cnn-squeeze': False,
             'vit-patch-size': patch_size,
             'vit-dim': 128,
             'vit-depth': 6,
@@ -141,7 +154,7 @@ def main():
             'vit-stages-depth': [3, 3],
             'vit-merging-strategy': '1d', # TODO: test 2d mode more throughly
             'vit-mlp-dim': 256,
-            'vit-dropout': 0.05,
+            'vit-dropout': 0.01,
             'vit-emb-dropout': 0.0,
             'vit-stochastic-depth-p': 0.0,
             'vit-stochastic-depth-mode': 'row',
@@ -159,11 +172,11 @@ def main():
             'min-lr': 1e-6,
             'adam-betas': (0.9, 0.999),
             'epochs': epochs,
-            'train-split-perc': 0.975,
-            'val-split-perc': 0.0125,
-            'test-split-perc': 0.0125,
+            'train-split-perc': 0.995,
+            'val-split-perc': 0.0025,
+            'test-split-perc': 0.0025,
             'batch-size': batch_size,
-            'shuffle': True,
+            'shuffle': False,
             'mixed-precision': True,
             }
 
@@ -211,6 +224,7 @@ def main():
     sanity_check_callback = SanityCheckCallback(
             data=list(zip(check_x, check_aux)),
             descriptors=check_fen,
+            # transform=(lambda x, aux: (rescale_bitboards(x), aux)),
             target_transform=(lambda y: y / target_scale)
             )
     wandb_callback = WandbCallback(
@@ -246,6 +260,7 @@ def main():
             test_p=config['test-split-perc'],
             batch_size=config['batch-size'],
             shuffle=config['shuffle'],
+            filter_fn=partial(filter_scores, filter_threshold),
             device=device,
             mixed_precision=config['mixed-precision'],
             verbose=1,
@@ -273,7 +288,7 @@ def main():
     model = training_loop.run(epochs=epochs)
 
     # torch.autograd.set_detect_anomaly(True)
-    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/13zi3z33', 'anomaly_checkpoint.pt', device=device)
+    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/1pkd6poq', 'anomaly_checkpoint.pt', device=device)
     # training_loop.load_state(checkpoint)
     # model = training_loop.run(epochs=epochs)
 

@@ -11,6 +11,8 @@ datasets/datasets/positions-12M.npz
 datasets/datasets/positions-depth10-12M.csv
 datasets/datasets/positions-depth10-12M.npz
 datasets/datasets/positions-depth12-12M.csv
+datasets/datasets/positions-depth12-12M.npz
+datasets/datasets/lichess60M-preprocessed.csv
 README.md
 NapoleonPP
 .git
