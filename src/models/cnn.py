@@ -13,7 +13,8 @@ class DepthwiseSeparable2d(nn.Module):
                  activation=nn.ReLU(),
                  padding='same',
                  normalize=True,
-                 pool=False):
+                 pool=False,
+                 se_layer=False):
         super(DepthwiseSeparable2d, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -52,9 +53,17 @@ class DepthwiseSeparable2d(nn.Module):
 
     def forward(self, x):
         x = self.depthwise(x)
+
+        if self.activation:
+            x = self.activation(x)
+
         x = self.pointwise(x)
+
         if self.normalize:
             x = self.norm_layer(x)
+
+        # TODO: try activation also after pointwise conv
+
         if self.pool:
             x = self.pool_layer(x)
         return x
@@ -62,10 +71,10 @@ class DepthwiseSeparable2d(nn.Module):
 
 
 
-# TODO: squeeze and excitation
 class Conv2dBlock(nn.Module):
     normalize: Final[bool]
     pool: Final[bool]
+    se_layer: Final[nn.Module]
 
     def __init__(self,
                  in_channels: int,
@@ -103,14 +112,17 @@ class Conv2dBlock(nn.Module):
             # self.norm_layer = nn.GroupNorm(1, self.out_channels)
 
         if self.se_layer:
-            squeeze_channels = max(1, self.out_channels // 4)
+            squeeze_channels = max(1, self.out_channels // 12)
             self.se = SqueezeExcitation(self.out_channels, squeeze_channels)
 
         if self.pool:
             self.pool_layer = nn.MaxPool2d(kernel_size=(2,2))
 
+
     def forward(self, x):
         x = self.conv(x)
+        if self.activation is not None:
+            x = self.activation(x)
         if self.normalize:
             x = self.norm_layer(x)
         if self.se_layer:
