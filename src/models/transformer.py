@@ -79,7 +79,7 @@ class PatchMerging(nn.Module):
         if mode == 'cnn':
             self.patch_merging = nn.Sequential(
                     Rearrange('b (h w) (d) -> b d h w', h=8 // old_p, w=8 // old_p),
-                    DepthwiseSeparable2d(in_dim, out_dim, kernel_size=2, stride=1, dilation=4, padding=0, normalize=False, activation=False),
+                    DepthwiseSeparable2d(in_dim, out_dim, kernel_size=2, stride=1, dilation=4, padding=0, normalize=False, activation=None),
                     # Conv2dBlock(in_dim, out_dim, kernel_size=2, stride=1, dilation=4, padding=0, normalize=False, activation=None),
                     Rearrange('b d h w -> b (h w) d')
             )
@@ -249,6 +249,7 @@ class CNN(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.residual = residual
+        self.activation = nn.ELU()
 
         block = DepthwiseSeparable2d if depthwise else Conv2dBlock
         
@@ -258,13 +259,13 @@ class CNN(nn.Module):
             pad = (1,1) if kernel_size > 2 else (0, 0) # TODO: causes problem with mobile optimizations
             # Input layer
             if i == 0:
-                conv_layers.append(block(in_channels, out_channels, kernel_size=kernel_size, padding=pad, se_layer=squeeze))
+                conv_layers.append(block(in_channels, out_channels, kernel_size=kernel_size, activation=None, padding=pad, se_layer=squeeze))
             # Output/Pooling layer
             elif i == layers - 1:
-                conv_layers.append(block(out_channels, out_channels, kernel_size=kernel_size, padding=pad, pool=pool, se_layer=squeeze))
+                conv_layers.append(block(out_channels, out_channels, kernel_size=kernel_size, activation=None, padding=pad, pool=pool, se_layer=squeeze))
             # Intermediate layer
             else:
-                conv_layers.append(block(out_channels, out_channels, kernel_size=kernel_size, padding=pad, se_layer=squeeze))
+                conv_layers.append(block(out_channels, out_channels, kernel_size=kernel_size, activation=None, padding=pad, se_layer=squeeze))
 
         self.conv_stack = nn.ModuleList(conv_layers)
 
@@ -272,6 +273,8 @@ class CNN(nn.Module):
         y = x
         for layer in self.conv_stack:
             y = layer(y)
+            y = self.activation(y)
+            # TODO: try 1x1 conv projection to match the shape
             if self.residual and x.shape == y.shape:
                 y = y + x
             x = y
@@ -318,9 +321,10 @@ class BitboardTransformer(nn.Module):
         self.stochastic_depth_mode=stochastic_depth_mode
         self.channel_pos_encoding = channel_pos_encoding
         self.learned_pos_encoding = learned_pos_encoding
+        self.in_channels = 12
 
         cnn_out_dim = 4 if self.cnn_pool else 8
-        vit_channels = cnn_out_channels if self.cnn_projection else 12 + self.channel_pos_encoding
+        vit_channels = cnn_out_channels if self.cnn_projection else self.in_channels + self.channel_pos_encoding
 
         if self.learned_pos_encoding:
             self.pos_embedding = nn.Parameter(torch.randn(8, 8))
@@ -331,7 +335,7 @@ class BitboardTransformer(nn.Module):
         if self.cnn_projection:
             assert cnn_out_channels, 'You must specify the number of CNN output channels'
             self.cnn = CNN(
-                        in_channels=12 + self.channel_pos_encoding,
+                        in_channels=self.in_channels + self.channel_pos_encoding,
                         out_channels=cnn_out_channels,
                         layers=cnn_layers,
                         kernel_size=cnn_kernel_size,
@@ -373,14 +377,14 @@ class BitboardTransformer(nn.Module):
                         nn.Linear(12*8*8, 1)
                         )
 
-    def _pos_encoding(self, x, height=8, width=8, channels=12, scale=1, learned=True):
+    def _pos_encoding(self, x, height:int = 8, width:int = 8, channels:int = 12, scale:float = 1.0, learned:bool =True):
         """ Encodes positional information to the input as an additional channel """
         device = x.device
 
-        if learned:
-            pe = self.pos_embedding
-        else:
-            pe = ((torch.arange(height*width, device=device) + 1) * scale).reshape(height, width)
+        # if learned:
+        #     pe = self.pos_embedding
+        # else:
+        pe = ((torch.arange(height*width, device=device) + 1) * scale).reshape(height, width)
 
         pe = pe.expand(x.shape[0], 1, height, width)
         return torch.cat((x, pe), dim=1)
@@ -391,7 +395,7 @@ class BitboardTransformer(nn.Module):
             material = self.material_mlp(x)
 
         if self.channel_pos_encoding:
-            x = self._pos_encoding(x, scale=0.01, learned=self.learned_pos_encoding)
+            x = self._pos_encoding(x, scale=0.01, learned=self.learned_pos_encoding, channels=self.in_channels)
 
         if self.cnn_projection:
             x = self.cnn(x)
