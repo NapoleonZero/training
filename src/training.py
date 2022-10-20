@@ -6,6 +6,7 @@ from datasets.utils import split_dataset
 from contextlib import ExitStack
 import numpy as np
 import gc
+from datasets.FilteredDataset import FilteredSampler, FilteredBatchSampler
 
 class TrainingLoop():
     def __init__(self,
@@ -18,6 +19,7 @@ class TrainingLoop():
                  test_p=0.15,
                  batch_size=1024,
                  shuffle=False,
+                 filter_fn=None,
                  device='cpu',
                  mixed_precision=False,
                  callbacks=[],
@@ -33,6 +35,7 @@ class TrainingLoop():
         self.test_p = test_p
         self.batch_size = batch_size
         self.shuffle = shuffle
+        self.filter_fn = filter_fn
         self.device = device
         self.mixed_precision = mixed_precision
         self.verbose = verbose
@@ -56,6 +59,11 @@ class TrainingLoop():
                 self.val_p,
                 self.test_p)
 
+    def _collate_fn(self, batch):
+        if self.filter_fn:
+            batch = [data for data in batch if self.filter_fn(data)]
+        return torch.utils.data.default_collate(batch)
+
     def _make_dataloaders(self, dataset, train_p, val_p, test_p):
         train_ds, val_ds, test_ds = split_dataset(dataset,
                 train_p, val_p, test_p,
@@ -63,19 +71,23 @@ class TrainingLoop():
         train_dl = DataLoader(train_ds,
                 batch_size=self.batch_size,
                 shuffle=self.shuffle,
+                collate_fn=self._collate_fn,
                 pin_memory=True,
-                num_workers=2,
-                prefetch_factor=4,
+                num_workers=8,
+                prefetch_factor=8,
+                worker_init_fn=dataset.worker_init_fn,
                 persistent_workers=False)
         val_dl = DataLoader(val_ds,
                 batch_size=self.batch_size,
+                collate_fn=self._collate_fn,
                 shuffle=False,
                 pin_memory=True,
                 num_workers=2,
-                prefetch_factor=4,
+                prefetch_factor=8,
                 persistent_workers=False)
         test_dl = DataLoader(test_ds,
                 batch_size=self.batch_size,
+                collate_fn=self._collate_fn,
                 shuffle=False,
                 pin_memory=True,
                 num_workers=0)
@@ -272,9 +284,9 @@ class TrainingLoop():
         self.update_metric('mean_loss', mean_loss)
         for c in self.callbacks: c.on_train_batch_end(self)
 
-        if batch_num % 1000 == 0:
-            torch.cuda.empty_cache()
-            gc.collect()
+        # if batch_num % 10000 == 0:
+        #     torch.cuda.empty_cache()
+        #     gc.collect()
 
     def on_train_epoch_start(self, epoch_num):
         self.update_metric('mean_loss', 0.0)
