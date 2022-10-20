@@ -177,6 +177,7 @@ def main():
             'test-split-perc': 0.0025,
             'batch-size': batch_size,
             'shuffle': False,
+            'random-subsampling': 0.1,
             'mixed-precision': True,
             }
 
@@ -260,6 +261,7 @@ def main():
             test_p=config['test-split-perc'],
             batch_size=config['batch-size'],
             shuffle=config['shuffle'],
+            random_subsampling=config['random-subsampling'],
             filter_fn=partial(filter_scores, filter_threshold),
             device=device,
             mixed_precision=config['mixed-precision'],
