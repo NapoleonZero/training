@@ -5,6 +5,7 @@ docker run -it \
   --rm \
   --gpus all \
   --runtime=nvidia \
+  --privileged \
   --ipc=host \
   -p 8888:8888 \
   --env CUBLAS_WORKSPACE_CONFIG=:4096:8 \
