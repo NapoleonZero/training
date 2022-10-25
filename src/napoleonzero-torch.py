@@ -122,11 +122,12 @@ def main():
 
     base_lr = 1e-3
     batch_size = 2**10
-    patch_size = 1
+    patch_size = 2
     epochs = 200
     # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
     # TODO: move to a YAML file
     # TODO: multiplying bitboards planes seems to be helpful (e.g. pawn * 0.1, bishop * 0.2, etc.)
+    # TODO: make vit-hierarchical specification more sane
     config = {
             'seed': SEED,
             'device': device,
@@ -138,20 +139,21 @@ def main():
             'filter-threshold': filter_threshold,
             'augment-rate': augment_rate,
             'cnn-projection': True,
+            'cnn-resnext': True,
             'cnn-output-channels': 256,
-            'cnn-layers': 9,
+            'cnn-layers': 12,
             'cnn-kernel-size': 3,
             'cnn-residual': True,
-            'cnn-pool': True,
+            'cnn-pool': False,
             'cnn-depthwise': False,
             'cnn-squeeze': True,
             'vit-patch-size': patch_size,
-            'vit-dim': 1024,
-            'vit-depth': 5,
+            'vit-dim': 512,
+            'vit-depth': 6,
             'vit-heads': 8,
-            'vit-hierarchical': True,
-            'vit-hierarchical-blocks': 2,
-            'vit-stages-depth': [1, 1, 3],
+            'vit-hierarchical': False,
+            'vit-hierarchical-blocks': 0,
+            'vit-stages-depth': [6],
             'vit-merging-strategy': '1d', # TODO: test 2d mode more throughly
             'vit-mlp-dim': 256,
             'vit-dropout': 0.01,
@@ -177,12 +179,13 @@ def main():
             'test-split-perc': 0.0025,
             'batch-size': batch_size,
             'shuffle': False,
-            'random-subsampling': 0.2,
+            'random-subsampling': 0.01,
             'mixed-precision': True,
             }
 
     model = BitboardTransformer(
                 cnn_projection=config['cnn-projection'],
+                cnn_resnext=config['cnn-resnext'],
                 cnn_out_channels=config['cnn-output-channels'],
                 cnn_layers=config['cnn-layers'],
                 cnn_kernel_size=config['cnn-kernel-size'],
@@ -285,9 +288,9 @@ def main():
                 ProgressbarCallback(
                     epochs=epochs,
                     width=20),
-                wandb_callback,
-                checkpoint_callback,
-                anomaly_detection,
+                # wandb_callback,
+                # checkpoint_callback,
+                # anomaly_detection,
                 sanity_check_callback
                 ]
             )

@@ -4,7 +4,7 @@ from torch.jit import Final
 
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
-from models.cnn import Conv2dBlock, DepthwiseSeparable2d
+from models.cnn import Conv2dBlock, DepthwiseSeparable2d, ResNextBlock
 from torchvision.ops import StochasticDepth
 from torch import Tensor
 from typing import Optional
@@ -269,6 +269,13 @@ class CNN(nn.Module):
 
         self.conv_stack = nn.ModuleList(conv_layers)
 
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
     def forward(self, x):
         y = x
         for layer in self.conv_stack:
@@ -280,6 +287,35 @@ class CNN(nn.Module):
             x = y
         return y
 
+class ResNextStem(nn.Module):
+    def __init__(self, in_channels, out_channels, depth=3, squeeze=False):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.depth = depth
+        self.activation = nn.ReLU()
+
+        # TODO: trying squeeze
+        self.conv1 = Conv2dBlock(in_channels, out_channels, kernel_size=7, padding=3, normalize=True, norm_before=True)
+
+        layers = [self.conv1]
+        for _ in range(depth):
+            layers.append(ResNextBlock(out_channels, out_channels, se_layer=squeeze))
+        
+        self.blocks = nn.Sequential(*layers)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        for block in self.blocks:
+            x = block(x)
+        return x
+
 class BitboardTransformer(nn.Module):
     cnn_projection: Final[bool]
     material_head: Final[bool]
@@ -287,6 +323,7 @@ class BitboardTransformer(nn.Module):
 
     def __init__(self,
                  cnn_projection=True,
+                 cnn_resnext=True,
                  cnn_out_channels=128,
                  cnn_layers=4,
                  cnn_kernel_size=2,
@@ -334,16 +371,24 @@ class BitboardTransformer(nn.Module):
         # and more aggressive probabilistic regularizations (like spatial dropout)
         if self.cnn_projection:
             assert cnn_out_channels, 'You must specify the number of CNN output channels'
-            self.cnn = CNN(
-                        in_channels=self.in_channels + self.channel_pos_encoding,
-                        out_channels=cnn_out_channels,
-                        layers=cnn_layers,
-                        kernel_size=cnn_kernel_size,
-                        residual=cnn_residual,
-                        pool=cnn_pool,
-                        depthwise=cnn_depthwise,
-                        squeeze=cnn_squeeze
+            if cnn_resnext:
+                self.cnn = ResNextStem(
+                            in_channels=self.in_channels + self.channel_pos_encoding,
+                            out_channels=cnn_out_channels,
+                            depth=cnn_layers,
+                            squeeze=cnn_squeeze
                         )
+            else:
+                self.cnn = CNN(
+                            in_channels=self.in_channels + self.channel_pos_encoding,
+                            out_channels=cnn_out_channels,
+                            layers=cnn_layers,
+                            kernel_size=cnn_kernel_size,
+                            residual=cnn_residual,
+                            pool=cnn_pool,
+                            depthwise=cnn_depthwise,
+                            squeeze=cnn_squeeze
+                            )
         self.vit = ViT(
                     image_size=cnn_out_dim,
                     patch_size=patch_size,

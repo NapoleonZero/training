@@ -69,12 +69,10 @@ class DepthwiseSeparable2d(nn.Module):
         return x
 
 
-
-
 class Conv2dBlock(nn.Module):
     normalize: Final[bool]
     pool: Final[bool]
-    se_layer: Final[nn.Module]
+    se_layer: Final[bool]
 
     def __init__(self,
                  in_channels: int,
@@ -82,9 +80,11 @@ class Conv2dBlock(nn.Module):
                  kernel_size=(2,2),
                  stride=1,
                  dilation=1,
+                 groups=1,
                  activation=nn.ReLU(),
                  padding='same',
                  normalize=True,
+                 norm_before=False,
                  pool=False,
                  se_layer=False):
         super(Conv2dBlock, self).__init__()
@@ -93,9 +93,11 @@ class Conv2dBlock(nn.Module):
         self.kernel_size = kernel_size
         self.stride = stride
         self.dilation = dilation
+        self.groups = groups
         self.activation = activation
         self.padding = padding
         self.normalize = normalize
+        self.norm_before = norm_before
         self.pool = pool
         self.se_layer = se_layer
 
@@ -104,6 +106,7 @@ class Conv2dBlock(nn.Module):
                 kernel_size=self.kernel_size,
                 stride=stride,
                 dilation=dilation,
+                groups=groups,
                 bias=(not self.normalize),
                 padding=self.padding
                 )
@@ -121,9 +124,11 @@ class Conv2dBlock(nn.Module):
 
     def forward(self, x):
         x = self.conv(x)
+        if self.normalize and self.norm_before:
+            x = self.norm_layer(x)
         if self.activation is not None:
             x = self.activation(x)
-        if self.normalize:
+        if self.normalize and not self.norm_before:
             x = self.norm_layer(x)
         if self.se_layer:
             x = self.se(x)
@@ -131,6 +136,41 @@ class Conv2dBlock(nn.Module):
             x = self.pool_layer(x)
         return x
 
+# TODO: inplace activation?
+class ResNextBlock(nn.Module):
+    se_layer: Final[bool]
+
+    def __init__(self,
+                 in_channels: int,
+                 out_channels: int,
+                 kernel_size=3,
+                 groups=64,
+                 width_per_group=16,
+                 activation=nn.ReLU(),
+                 pool=False,
+                 se_layer=False):
+        super().__init__()
+        self.se_layer = se_layer
+        grouped_width = width_per_group * groups
+        self.conv1 = Conv2dBlock(in_channels, grouped_width, kernel_size=1, padding=0, normalize=True, norm_before=True)
+        self.conv2 = Conv2dBlock(grouped_width, grouped_width, kernel_size=3, padding=1, groups=groups, normalize=True, norm_before=True)
+        self.conv3 = Conv2dBlock(grouped_width, out_channels, kernel_size=1, padding=0, normalize=True, norm_before=True, activation=None)
+        self.activation = activation
+
+        squeeze_channels = max(1, out_channels // 4)
+        self.se = SqueezeExcitation(out_channels, squeeze_channels)
+
+    def forward(self, x):
+        y = self.conv1(x)
+        y = self.conv2(y)
+        y = self.conv3(y)
+
+        if self.se_layer:
+            y = self.se(y)
+
+        y = y + x
+        y = self.activation(y)
+        return y
 
 class CNN(nn.Module):
     def __init__(self):
