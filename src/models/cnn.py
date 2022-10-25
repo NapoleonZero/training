@@ -112,7 +112,7 @@ class Conv2dBlock(nn.Module):
             # self.norm_layer = nn.GroupNorm(1, self.out_channels)
 
         if self.se_layer:
-            squeeze_channels = max(1, self.out_channels // 12)
+            squeeze_channels = max(1, self.out_channels // 4)
             self.se = SqueezeExcitation(self.out_channels, squeeze_channels)
 
         if self.pool:
