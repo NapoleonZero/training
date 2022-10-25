@@ -190,7 +190,7 @@ class ViT(nn.Module):
         if hierarchical:
             for l in range(merging_blocks):
                 in_dim = out_dim
-                out_dim *= 2
+                # out_dim *= 2
                 k = stages_depth[l + 1]
                 merge = nn.Sequential(
                         PatchMerging(patch_size*(2**(l+1)), in_dim, out_dim, mode=merging_strategy),
@@ -256,7 +256,7 @@ class CNN(nn.Module):
         conv_layers = []
         for i in range(layers):
             # pad = 'same' # TODO: causes problem with mobile optimizations
-            pad = (1,1) if kernel_size > 2 else (0, 0) # TODO: causes problem with mobile optimizations
+            pad = (1,1) if kernel_size > 2 else (0, 0)
             # Input layer
             if i == 0:
                 conv_layers.append(block(in_channels, out_channels, kernel_size=kernel_size, activation=None, padding=pad, se_layer=squeeze))

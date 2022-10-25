@@ -84,7 +84,7 @@ class TrainingLoop():
                 collate_fn=self._collate_fn,
                 pin_memory=True,
                 num_workers=8,
-                prefetch_factor=8,
+                prefetch_factor=4,
                 worker_init_fn=dataset.worker_init_fn,
                 persistent_workers=False)
         val_dl = DataLoader(val_ds,
@@ -92,7 +92,7 @@ class TrainingLoop():
                 collate_fn=self._collate_fn,
                 shuffle=False,
                 pin_memory=True,
-                num_workers=4,
+                num_workers=8,
                 prefetch_factor=8,
                 persistent_workers=True)
         test_dl = DataLoader(test_ds,
@@ -308,7 +308,7 @@ class TrainingLoop():
         # the training stopped mid-epoch
         self.update_state('epoch', epoch_num + 1)
         for c in self.callbacks: c.on_train_epoch_end(self)
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
     def on_validation_batch_start(self):
         for c in self.callbacks: c.on_validation_batch_start(self)
@@ -325,7 +325,7 @@ class TrainingLoop():
         for metric, value in other_metrics.items():
             self.update_metric(f'val_{metric}', value)
         for c in self.callbacks: c.on_validation_end(self)
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
     # TODO: maybe use an other class for evaluation?
     def evaluate(self):
