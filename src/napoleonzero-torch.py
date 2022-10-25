@@ -19,7 +19,7 @@ from training import TrainingLoop
 from callbacks import TrainingCallback, ProgressbarCallback, LRSchedulerCallback
 from callbacks import WandbCallback, CheckpointCallback, SanityCheckCallback
 from datasets.BitboardDataset import string_to_matrix
-from losses import MSRELoss
+from losses import MSRELoss, WDLLoss
 import sys
 
 def set_random_state(seed):
@@ -120,10 +120,10 @@ def main():
                 debug=True
                 )
 
-    base_lr = 1.0e-4
+    base_lr = 1e-3
     batch_size = 2**10
     patch_size = 1
-    epochs = 100
+    epochs = 200
     # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
     # TODO: move to a YAML file
     # TODO: multiplying bitboards planes seems to be helpful (e.g. pawn * 0.1, bishop * 0.2, etc.)
@@ -138,20 +138,20 @@ def main():
             'filter-threshold': filter_threshold,
             'augment-rate': augment_rate,
             'cnn-projection': True,
-            'cnn-output-channels': 128,
-            'cnn-layers': 3,
+            'cnn-output-channels': 256,
+            'cnn-layers': 9,
             'cnn-kernel-size': 3,
-            'cnn-residual': False,
-            'cnn-pool': False,
+            'cnn-residual': True,
+            'cnn-pool': True,
             'cnn-depthwise': False,
-            'cnn-squeeze': False,
+            'cnn-squeeze': True,
             'vit-patch-size': patch_size,
-            'vit-dim': 128,
-            'vit-depth': 6,
+            'vit-dim': 1024,
+            'vit-depth': 5,
             'vit-heads': 8,
             'vit-hierarchical': True,
-            'vit-hierarchical-blocks': 1,
-            'vit-stages-depth': [3, 3],
+            'vit-hierarchical-blocks': 2,
+            'vit-stages-depth': [1, 1, 3],
             'vit-merging-strategy': '1d', # TODO: test 2d mode more throughly
             'vit-mlp-dim': 256,
             'vit-dropout': 0.01,
@@ -162,22 +162,22 @@ def main():
             'vit-channel-pos-encoding': True,
             'vit-learned-pos-encoding': False,
             'material_head': False,
-            'weight-decay': 1e-2,
+            'weight-decay': 1e-3,
             'learning-rate': base_lr * batch_size / 256,
-            'lr-warmup-steps': 10000,
+            'lr-warmup-steps': int(10000 / (batch_size / 2**10)),
             'lr-cosine-annealing': True,
             'lr-cosine-tmax': epochs,
             'lr-cosine-factor': 1,
             'lr-restart': False,
             'min-lr': 1e-6,
-            'adam-betas': (0.9, 0.999),
+            'adam-betas': (0.95, 0.99),
             'epochs': epochs,
             'train-split-perc': 0.995,
             'val-split-perc': 0.0025,
             'test-split-perc': 0.0025,
             'batch-size': batch_size,
             'shuffle': False,
-            'random-subsampling': 0.1,
+            'random-subsampling': 0.2,
             'mixed-precision': True,
             }
 
@@ -211,10 +211,14 @@ def main():
     print_summary(model)
 
     # loss_fn = nn.MSELoss()
-    loss_fn = MSRELoss(delta=(filter_threshold + 1))
+    log_loss = MSRELoss(delta=(filter_threshold + 1))
+    loss_fn = WDLLoss(input_scale=300*target_scale, target_scale=300*target_scale)
     # TODO: try gradient clipping
     optimizer = torch.optim.AdamW(
-            model.parameters(),
+            [{'params': model.cnn.parameters()},
+                {'params': model.vit.parameters(), 'lr': 1e-5}
+                ],
+            # model.parameters(),
             betas=config['adam-betas'],
             weight_decay=config['weight-decay'],
             lr=config['learning-rate']
@@ -267,7 +271,7 @@ def main():
             mixed_precision=config['mixed-precision'],
             verbose=1,
             seed=SEED,
-            val_metrics={'l1': nn.L1Loss(), 'mse': nn.MSELoss()},
+            val_metrics={'l1': nn.L1Loss(), 'mse': nn.MSELoss(), 'logl': log_loss},
             callbacks=[
                 LRSchedulerCallback(
                     optimizer,
