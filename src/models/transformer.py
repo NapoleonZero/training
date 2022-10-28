@@ -8,6 +8,7 @@ from models.cnn import Conv2dBlock, DepthwiseSeparable2d, ResNextBlock
 from torchvision.ops import StochasticDepth
 from torch import Tensor
 from typing import Optional
+from models.activations import ClippedReLU
 
 def pair(t):
     return t if isinstance(t, tuple) else (t, t)
@@ -122,11 +123,8 @@ class ViT(nn.Module):
             patch_size,
             num_classes,
             dim,
-            depth,
             heads, 
             mlp_dim,
-            hierarchical = False,
-            merging_blocks = 0,
             merging_strategy = '1d',
             stages_depth = [],
             stochastic_depth_p = 0.0,
@@ -140,19 +138,14 @@ class ViT(nn.Module):
         super().__init__()
         image_height, image_width = pair(image_size)
         patch_height, patch_width = pair(patch_size)
-        self.hierarchical = hierarchical
-        self.merging_blocks = merging_blocks
+        self.heads = heads
         self.stochastic_depth_p = stochastic_depth_p
         self.stochastic_depth_mode = stochastic_depth_mode
+        self.emb_dropout = emb_dropout
         self.pool = pool
 
         # TODO: error messages
-        assert merging_blocks == 0 or hierarchical
-        assert not hierarchical or merging_blocks > 0
-        assert merging_blocks == 0 or len(stages_depth) > 0
-
-        if hierarchical:
-            assert len(stages_depth) == merging_blocks + 1
+        assert len(stages_depth) > 0
 
         assert image_height % patch_height == 0 and image_width % patch_width == 0, 'Image dimensions must be divisible by the patch size.'
 
@@ -169,7 +162,7 @@ class ViT(nn.Module):
 
         self.to_aux_embedding = nn.Linear(3, dim)
         self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 1, dim))
-        self.dropout = nn.Dropout(emb_dropout)
+        self.dropout = nn.Dropout1d(emb_dropout)
 
         self.transformer = nn.TransformerEncoder(
                 nn.TransformerEncoderLayer(
@@ -177,48 +170,67 @@ class ViT(nn.Module):
                     nhead=heads,
                     dim_feedforward=mlp_dim,
                     dropout=dropout,
-                    activation='gelu',
+                    activation='relu',
                     norm_first=True,
                     batch_first=True
                     ),
-                num_layers=stages_depth[0] if hierarchical else depth,
+                num_layers=stages_depth[0],
                 norm=nn.LayerNorm(dim)
                 )
 
         out_dim=dim
         merging_layers = []
-        if hierarchical:
-            for l in range(merging_blocks):
-                in_dim = out_dim
-                # out_dim *= 2
-                k = stages_depth[l + 1]
-                merge = nn.Sequential(
-                        PatchMerging(patch_size*(2**(l+1)), in_dim, out_dim, mode=merging_strategy),
-                        nn.TransformerEncoder(
-                            nn.TransformerEncoderLayer(
-                                d_model=out_dim,
-                                nhead=heads,
-                                # dim_feedforward=(out_dim * 4),
-                                dim_feedforward=mlp_dim,
-                                dropout=dropout,
-                                activation='gelu',
-                                norm_first=True,
-                                batch_first=True
-                                ),
-                            num_layers=k,
-                            norm=nn.LayerNorm(out_dim)
-                            )
+        for l in range(len(stages_depth) - 1):
+            in_dim = out_dim
+            # out_dim *= 2
+            k = stages_depth[l + 1]
+            merge = nn.Sequential(
+                    PatchMerging(patch_size*(2**(l+1)), in_dim, out_dim, mode=merging_strategy),
+                    nn.TransformerEncoder(
+                        nn.TransformerEncoderLayer(
+                            d_model=out_dim,
+                            nhead=heads,
+                            # dim_feedforward=(out_dim * 4),
+                            dim_feedforward=mlp_dim,
+                            dropout=dropout,
+                            activation='relu',
+                            norm_first=True,
+                            batch_first=True
+                            ),
+                        num_layers=k,
+                        norm=nn.LayerNorm(out_dim)
                         )
-                merging_layers.append(merge)
+                    )
+            merging_layers.append(merge)
 
         self.stages_stack = nn.ModuleList(merging_layers)
         self.mlp_head = nn.Sequential(
-                nn.LayerNorm(out_dim),
-                nn.Linear(out_dim, num_classes)
+                # nn.LayerNorm(out_dim),
+                nn.Linear(out_dim, out_dim * 2),
+                nn.ReLU(),
+                nn.LayerNorm(out_dim * 2),
+                nn.Linear(out_dim * 2, out_dim * 2),
+                nn.ReLU(),
+                nn.LayerNorm(out_dim * 2),
+                nn.Linear(out_dim * 2, num_classes)
         )
+
+    def _generate_dropout_mask(self, b: int , heads: int, n: int) -> Tensor:
+        """ Generate a random additive mask of size (n, n) """
+        p = self.emb_dropout
+        mask = torch.bernoulli(p * torch.ones(b * heads, n))
+        mask[mask == 1] = -torch.inf
+
+        mask = mask.repeat_interleave(n).reshape(b * heads, n, n)
+
+        # Each token must be able to attend itself
+        mask[torch.eye(n).repeat(b * heads, 1, 1).bool()] = 0.0
+        return mask
 
     def forward(self, img, aux):
         x = self.to_patch_embedding(img)
+        x = self.dropout(x)
+
         b, n, _ = x.shape
 
         aux = self.to_aux_embedding(aux)
@@ -227,16 +239,25 @@ class ViT(nn.Module):
         x = torch.cat((aux, x), dim=1)
 
         # TODO: make ViT pos embedding optional
-        x += self.pos_embedding[:, :(n + 1)]
-        x = self.dropout(x)
-
-        x = self.transformer(x)
+        # x += self.pos_embedding[:, :(n + 1)]
+        # x = self.dropout(x)
+        
+        mask = None
+        # if self.training:
+        #     mask = self._generate_dropout_mask(b, self.heads, n + 1).to(x.device)
+        # TODO: by using the mask parameter we can provide the attention with
+        # an inner learned positional embedding, to be added before the softmax
+        # operator (see simple ViT baseline paper)
+        # x = self.transformer(x, mask=mask)
+        x = self.transformer(x, mask=mask)
         
         # Hierarchical (pooling) stages
         for stage in self.stages_stack:
             x = stage(x)
 
-        x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
+        # x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
+        # TODO: make this an option
+        x = x[:, 0]
 
         return self.mlp_head(x)
 
@@ -293,14 +314,13 @@ class ResNextStem(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.depth = depth
-        self.activation = nn.ReLU()
+        self.activation = ClippedReLU(100)
 
-        # TODO: trying squeeze
-        self.conv1 = Conv2dBlock(in_channels, out_channels, kernel_size=7, padding=3, normalize=True, norm_before=True)
+        self.conv1 = Conv2dBlock(in_channels, out_channels, kernel_size=7, padding=3, normalize=True, norm_before=True, activation=self.activation)
 
         layers = [self.conv1]
         for _ in range(depth):
-            layers.append(ResNextBlock(out_channels, out_channels, se_layer=squeeze))
+            layers.append(ResNextBlock(out_channels, out_channels, se_layer=squeeze, activation=self.activation))
         
         self.blocks = nn.Sequential(*layers)
 
@@ -312,9 +332,7 @@ class ResNextStem(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        for block in self.blocks:
-            x = block(x)
-        return x
+        return self.blocks(x)
 
 class BitboardTransformer(nn.Module):
     cnn_projection: Final[bool]
@@ -331,8 +349,6 @@ class BitboardTransformer(nn.Module):
                  cnn_pool=True,
                  cnn_depthwise=False,
                  cnn_squeeze=False,
-                 hierarchical=False,
-                 hierarchical_blocks=1,
                  stages_depth=[],
                  merging_strategy='1d',
                  stochastic_depth_p=0.0,
@@ -340,7 +356,6 @@ class BitboardTransformer(nn.Module):
                  material_head=False,
                  patch_size=2,
                  dim=64,
-                 depth=12,
                  heads=32,
                  mlp_dim=256,
                  random_patch_projection=True,
@@ -352,8 +367,6 @@ class BitboardTransformer(nn.Module):
         self.cnn_projection = cnn_projection
         self.cnn_pool = cnn_pool
         self.material_head = material_head
-        self.hierarchical = hierarchical
-        self.hierarchical_blocks = hierarchical_blocks
         self.stochastic_depth_p=stochastic_depth_p
         self.stochastic_depth_mode=stochastic_depth_mode
         self.channel_pos_encoding = channel_pos_encoding
@@ -393,14 +406,11 @@ class BitboardTransformer(nn.Module):
                     image_size=cnn_out_dim,
                     patch_size=patch_size,
                     num_classes=1,
-                    hierarchical=hierarchical,
-                    merging_blocks=hierarchical_blocks,
                     stages_depth=stages_depth,
                     merging_strategy=merging_strategy,
                     stochastic_depth_p=stochastic_depth_p,
                     stochastic_depth_mode=stochastic_depth_mode,
                     dim=dim,
-                    depth=depth,
                     heads=heads,
                     mlp_dim=mlp_dim,
                     channels=vit_channels,
