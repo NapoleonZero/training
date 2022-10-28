@@ -94,6 +94,7 @@ class ProgressbarCallback(TrainingCallback):
         batch = state.get_state('batch')
         lr = state.get_state('lr')
         loss = state.get_last_metric('loss')
+
         if batch is not None and loss and lr:
             self.kbar.update(batch, values=[('loss', loss), ('lr', lr)])
 
@@ -116,7 +117,7 @@ class LRSchedulerCallback(TrainingCallback):
         self.optimizer = optimizer
         self.warmup_steps = warmup_steps
         self.lr_warmup = LinearLR(self.optimizer, start_factor=0.001, total_iters=self.warmup_steps)
-        self.lr_decay = ReduceLROnPlateau(self.optimizer, mode='min', factor=0.5, patience=5)
+        self.lr_decay = ReduceLROnPlateau(self.optimizer, mode='min', factor=0.5, patience=3)
         self.lr_cosine = None
         self.cosine_annealing = cosine_annealing
         self.cosine_tmax = cosine_tmax
@@ -186,8 +187,8 @@ class LRSchedulerCallback(TrainingCallback):
 
                 # Apply cosine annealing
                 self.lr_cosine.step()
-        # Decay on plateau (if cosine_annealing is False)
-        elif val_loss is not None:
+        # Decay on plateau 
+        if val_loss is not None:
             self.lr_decay.step(val_loss)
         state.update_state('lr', self.optimizer.param_groups[0]['lr'])
 

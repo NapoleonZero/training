@@ -239,7 +239,7 @@ class ViT(nn.Module):
         x = torch.cat((aux, x), dim=1)
 
         # TODO: make ViT pos embedding optional
-        # x += self.pos_embedding[:, :(n + 1)]
+        x += self.pos_embedding[:, :(n + 1)]
         # x = self.dropout(x)
         
         mask = None
@@ -338,6 +338,7 @@ class BitboardTransformer(nn.Module):
     cnn_projection: Final[bool]
     material_head: Final[bool]
     channel_pos_encoding: Final[bool]
+    learned_pos_encoding: Final[bool]
 
     def __init__(self,
                  cnn_projection=True,
@@ -436,10 +437,10 @@ class BitboardTransformer(nn.Module):
         """ Encodes positional information to the input as an additional channel """
         device = x.device
 
-        # if learned:
-        #     pe = self.pos_embedding
-        # else:
-        pe = ((torch.arange(height*width, device=device) + 1) * scale).reshape(height, width)
+        if learned:
+            pe = self.pos_embedding
+        else:
+            pe = ((torch.arange(height*width, device=device) + 1) * scale).reshape(height, width)
 
         pe = pe.expand(x.shape[0], 1, height, width)
         return torch.cat((x, pe), dim=1)
