@@ -32,9 +32,10 @@ def set_random_state(seed):
 def params_count(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def print_summary(model):
-    print(model)
-    print(f'Number of parameters: {params_count(model)}')
+def print_summary(model, print_model=False):
+    if print_model:
+        print(model)
+        print(f'Number of parameters: {params_count(model)}')
 
 def read_bitboards(csv):
   """ csv: comma separated set of bitboards.
@@ -74,9 +75,15 @@ def read_positions(file):
 
     return fens, x, aux
 
+scales = [0.1, 0.3, 0.3, 0.5, 0.9, 1.0]
+
 def rescale_bitboards(bs):
     """ Scale each bitboard by [0.1, 0.2, ..., 0.6] relatively for both colors """
-    return np.array([bs[i] * (i%6 + 1) / 10 for i in np.arange(12)])
+    # return np.array([bs[i] * (i%6 + 1) / 10 for i in np.arange(12)])
+    return np.array([bs[i] * scales[i % 6] * 100 * ((i // 6) * (-2) + 1) for i in np.arange(12)])
+
+def rescale_aux(aux):
+    return np.array([aux[-3], aux[-2] / 65, aux[-1] / 15])
 
 def filter_scores(filter_threshold: int, data: tuple) -> bool:
     """ Filter scores based on a given cutoff threshold """
@@ -115,6 +122,7 @@ def main():
                 oversample_target=oversample_target,
                 fraction=1.0,
                 # transform=(lambda x, aux: (rescale_bitboards(x), aux)),
+                transform=(lambda x, aux: (rescale_bitboards(x), rescale_aux(aux))),
                 target_transform=(lambda y: y * 100 * target_scale), # for stockfish evaluations
                 augment_rate=augment_rate,
                 debug=True
@@ -127,7 +135,6 @@ def main():
     # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
     # TODO: move to a YAML file
     # TODO: multiplying bitboards planes seems to be helpful (e.g. pawn * 0.1, bishop * 0.2, etc.)
-    # TODO: make vit-hierarchical specification more sane
     config = {
             'seed': SEED,
             'device': device,
@@ -141,7 +148,7 @@ def main():
             'cnn-projection': True,
             'cnn-resnext': True,
             'cnn-output-channels': 256,
-            'cnn-layers': 12,
+            'cnn-layers': 6,
             'cnn-kernel-size': 3,
             'cnn-residual': True,
             'cnn-pool': False,
@@ -149,11 +156,8 @@ def main():
             'cnn-squeeze': True,
             'vit-patch-size': patch_size,
             'vit-dim': 512,
-            'vit-depth': 6,
             'vit-heads': 8,
-            'vit-hierarchical': False,
-            'vit-hierarchical-blocks': 0,
-            'vit-stages-depth': [6],
+            'vit-stages-depth': [4],
             'vit-merging-strategy': '1d', # TODO: test 2d mode more throughly
             'vit-mlp-dim': 256,
             'vit-dropout': 0.01,
@@ -179,11 +183,12 @@ def main():
             'test-split-perc': 0.0025,
             'batch-size': batch_size,
             'shuffle': False,
-            'random-subsampling': 0.01,
+            'random-subsampling': 0.001,
             'mixed-precision': True,
             }
 
     model = BitboardTransformer(
+                channel_aux_encoding=True,
                 cnn_projection=config['cnn-projection'],
                 cnn_resnext=config['cnn-resnext'],
                 cnn_out_channels=config['cnn-output-channels'],
@@ -193,15 +198,12 @@ def main():
                 cnn_pool=config['cnn-pool'],
                 cnn_depthwise=config['cnn-depthwise'],
                 cnn_squeeze=config['cnn-squeeze'],
-                hierarchical=config['vit-hierarchical'],
-                hierarchical_blocks=config['vit-hierarchical-blocks'],
                 stages_depth=config['vit-stages-depth'],
                 merging_strategy=config['vit-merging-strategy'],
                 stochastic_depth_p=config['vit-stochastic-depth-p'],
                 stochastic_depth_mode=config['vit-stochastic-depth-mode'],
                 patch_size=config['vit-patch-size'],
                 dim=config['vit-dim'],
-                depth=config['vit-depth'],
                 heads=config['vit-heads'],
                 mlp_dim=config['vit-mlp-dim'],
                 random_patch_projection=config['vit-random-patch-projection'],
@@ -233,6 +235,7 @@ def main():
             data=list(zip(check_x, check_aux)),
             descriptors=check_fen,
             # transform=(lambda x, aux: (rescale_bitboards(x), aux)),
+            transform=(lambda x, aux: (x, rescale_aux(aux))),
             target_transform=(lambda y: y / target_scale)
             )
     wandb_callback = WandbCallback(

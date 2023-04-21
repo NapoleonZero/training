@@ -361,6 +361,7 @@ class BitboardTransformer(nn.Module):
                  mlp_dim=256,
                  random_patch_projection=True,
                  channel_pos_encoding=False,
+                 channel_aux_encoding=False,
                  learned_pos_encoding=False,
                  dropout=0.1,
                  emb_dropout=0.0):
@@ -371,11 +372,20 @@ class BitboardTransformer(nn.Module):
         self.stochastic_depth_p=stochastic_depth_p
         self.stochastic_depth_mode=stochastic_depth_mode
         self.channel_pos_encoding = channel_pos_encoding
+        self.channel_aux_encoding = channel_aux_encoding
         self.learned_pos_encoding = learned_pos_encoding
         self.in_channels = 12
-
         cnn_out_dim = 4 if self.cnn_pool else 8
+
+        if channel_aux_encoding:
+            self.in_channels += 3
+            self.aux_projection = nn.Sequential(
+                nn.Linear(3, 8*8*3),
+                Rearrange('b (h w c) -> b c h w', h = 8, w = 8, c = 3)
+            )
+
         vit_channels = cnn_out_channels if self.cnn_projection else self.in_channels + self.channel_pos_encoding
+
 
         if self.learned_pos_encoding:
             self.pos_embedding = nn.Parameter(torch.randn(8, 8))
@@ -449,6 +459,10 @@ class BitboardTransformer(nn.Module):
     def forward(self, x, aux):
         if self.material_head:
             material = self.material_mlp(x)
+
+        if self.channel_aux_encoding:
+            aux_planes = self.aux_projection(aux)
+            x = torch.cat((x, aux_planes), dim=1)
 
         if self.channel_pos_encoding:
             x = self._pos_encoding(x, scale=0.01, learned=self.learned_pos_encoding, channels=self.in_channels)
