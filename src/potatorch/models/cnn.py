@@ -69,8 +69,6 @@ class DepthwiseSeparable2d(nn.Module):
         return x
 
 
-
-
 class Conv2dBlock(nn.Module):
     normalize: Final[bool]
     pool: Final[bool]
@@ -130,34 +128,3 @@ class Conv2dBlock(nn.Module):
         if self.pool:
             x = self.pool_layer(x)
         return x
-
-
-class CNN(nn.Module):
-    def __init__(self):
-        super(CNN, self).__init__()
-
-        self.conv_stack = nn.Sequential(
-                Conv2dBlock(12, 32, padding='same', activation=nn.ReLU()),
-                Conv2dBlock(32, 32, padding='same', activation=nn.ReLU()),
-                Conv2dBlock(32, 64, padding='same', activation=nn.ReLU()),
-                Conv2dBlock(64, 128, padding='same', activation=nn.ReLU(), pool=True),
-                Conv2dBlock(128, 128, padding='same', activation=nn.ReLU()),
-                Conv2dBlock(128, 128, padding='same', activation=nn.ReLU()),
-                Conv2dBlock(128, 128, padding='same', activation=nn.ReLU()),
-                Conv2dBlock(128, 256, padding='same', activation=nn.ReLU())
-                )
-
-        self.linear_output_stack = nn.Sequential(
-                nn.Linear(256*4*4 + 3, 128),
-                nn.ReLU(),
-                nn.Linear(128, 128),
-                nn.ReLU(),
-                nn.Linear(128, 1)
-                )
-
-    def forward(self, x, y):
-        x = self.conv_stack(x)
-        x = torch.flatten(x, start_dim=1)
-        x = torch.cat([x, y], 1)
-        y = self.linear_output_stack(x)
-        return y

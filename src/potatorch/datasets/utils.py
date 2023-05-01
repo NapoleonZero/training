@@ -7,7 +7,7 @@ import random
 from torch import default_generator, randperm
 from torch._utils import _accumulate
 
-def my_random_split(dataset, lengths, generator = default_generator):
+def memory_safe_random_split(dataset, lengths, generator = default_generator):
     """ same as torch.utils.data.random_split, but passes a `ndarray` to Subset
     in order to avoid memory leaks caused by python refcounting behaviour of
     native lists
@@ -36,7 +36,7 @@ def split_dataset(ds, train_p=0.7, val_p=0.15, test_p=0.15, seed=42):
     val_size = int(len(ds) * val_p)
     test_size = len(ds) - train_size - val_size
 
-    train_ds, val_ds, test_ds = my_random_split(ds,
+    train_ds, val_ds, test_ds = memory_safe_random_split(ds,
             [train_size, val_size, test_size],
             generator=torch.Generator().manual_seed(seed)
             )

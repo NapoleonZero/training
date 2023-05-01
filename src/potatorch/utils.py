@@ -12,4 +12,3 @@ def download_wandb_checkpoint(run_path, filename, device='cuda'):
 
 def save_wandb_file(path):
     wandb.save(path, base_path=os.path.dirname(path))
-
