@@ -282,6 +282,10 @@ class TrainingLoop():
         # Running mean loss update
         mean_loss = mean_loss + (batch_loss - mean_loss)/(batch_num + 1)
         self.update_metric('mean_loss', mean_loss)
+
+        # Log current learning rate
+        self.update_state('lr', self.optimizer.param_groups[0]['lr'])
+
         for c in self.callbacks: c.on_train_batch_end(self)
 
         # if batch_num % 10000 == 0:

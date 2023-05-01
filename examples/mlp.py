@@ -35,25 +35,14 @@ training_loop = TrainingLoop(
     train_p=0.8,
     val_p=0.1,
     test_p=0.1,
-    batch_size=10,
-    shuffle=False,
-    random_subsampling=None,
-    filter_fn=None,
+    batch_size=256,
+    shuffle=True,
     device=device,
-    mixed_precision=False,
     verbose=1,
     seed=SEED,
     val_metrics={'l1': nn.L1Loss(), 'mse': nn.MSELoss()},
     callbacks=[
-        LRSchedulerCallback(optimizer,
-                            warmup_steps=10,
-                            cosine_annealing=True,
-                            cosine_tmax=epochs,
-                            cosine_factor=None,
-                            restart=False,
-                            min_lr=1e-5),
         ProgressbarCallback(epochs=epochs, width=20),
-        
     ]
 )
 model = training_loop.run(epochs=epochs)
