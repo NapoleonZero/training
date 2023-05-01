@@ -1,6 +1,7 @@
 FROM nvcr.io/nvidia/pytorch:22.09-py3 
 RUN apt-get update -y && apt-get install git -y
-RUN pip install pandas numpy pkbar einops jupyterlab pathos
+RUN pip install pandas numpy pkbar einops pathos
+RUN pip install wandb
 
 WORKDIR /root
 RUN mkdir -p potatorch
@@ -10,5 +11,5 @@ COPY ./examples ./potatorch/examples
 
 RUN pip install -e potatorch
 
-# CMD ["python3", "./potatorch/examples/mlp.py"]
-ENTRYPOINT ["tail", "-f", "/dev/null"]
+CMD ["python3", "./potatorch/examples/mlp.py"]
+# ENTRYPOINT ["tail", "-f", "/dev/null"]

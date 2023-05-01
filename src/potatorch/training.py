@@ -85,7 +85,8 @@ class TrainingLoop():
                 pin_memory=True,
                 num_workers=8,
                 prefetch_factor=8,
-                worker_init_fn=dataset.worker_init_fn,
+                # TODO: how to pass worker_init_fn
+                # worker_init_fn=dataset.worker_init_fn,
                 persistent_workers=False)
         val_dl = DataLoader(val_ds,
                 batch_size=self.batch_size,
@@ -118,21 +119,17 @@ class TrainingLoop():
 
         initial_epoch = self.get_state('epoch', 1)
 
-        #######################################################################
-        # TESTING AUX LOSS
-        # aux_loss = nn.MSELoss()
-        #######################################################################
-
         for epoch in range(initial_epoch, initial_epoch + epochs):
             self.on_train_epoch_start(epoch)
 
             self.model.train()
-            for batch, (X, aux, y) in enumerate(self.train_dataloader):
+            # TODO: provide interface to more than one input
+            for batch, (X, y) in enumerate(self.train_dataloader):
                 self.on_train_batch_start(batch)
                 # TODO: generalize variable type
-                X = X.float().to(self.device, non_blocking=True, memory_format=torch.channels_last)
+                # TODO: memory_format (e.g. torch.channels_last for 4D tensors)
+                X = X.float().to(self.device, non_blocking=True)
                 y = y.float().to(self.device, non_blocking=True)
-                aux = aux.float().to(self.device, non_blocking=True)
 
                 # Clear gradients
                 self.optimizer.zero_grad(set_to_none=True)
@@ -141,13 +138,8 @@ class TrainingLoop():
                 with ExitStack() as stack:
                     if self.mixed_precision:
                         stack.enter_context(torch.cuda.amp.autocast())
-                    pred = self.model(X, aux).squeeze()
-        #######################################################################
-                    # TESTING AUX LOSS
-                    # aux_pred = self.model.material_mlp(X).squeeze()
-                    # loss = self.loss_fn(pred, y) + aux_loss(aux_pred, y)
+                    pred = self.model(X).squeeze()
                     loss = self.loss_fn(pred, y)
-        #######################################################################
 
                 # Backpropagation
                 if self.mixed_precision:
@@ -173,13 +165,12 @@ class TrainingLoop():
         test_metrics = dict.fromkeys(metrics.keys(), 0.0)
         # test_metrics = [0.0 for _ in metrics.keys()]
         with torch.no_grad():
-            for X, aux, y in dataloader:
+            for X, y in dataloader:
                 # TODO: generalize variable type
-                X = X.float().to(self.device, non_blocking=True, memory_format=torch.channels_last)
+                X = X.float().to(self.device, non_blocking=True)
                 y = y.float().to(self.device, non_blocking=True)
-                aux = aux.float().to(self.device, non_blocking=True)
 
-                pred = self.model(X, aux).squeeze().detach()
+                pred = self.model(X).squeeze().detach()
                 test_loss += self.loss_fn(pred, y).detach()
                 for name, fn in metrics.items():
                     test_metrics[name] += fn(pred, y).detach()
@@ -196,11 +187,10 @@ class TrainingLoop():
         self.model.eval()
         h = []
         with torch.no_grad():
-            for X, aux in data:
-                X = X.float().to(self.device, non_blocking=True, memory_format=torch.channels_last)
-                aux = aux.float().to(self.device, non_blocking=True)
+            for X in data:
+                X = X.float().to(self.device, non_blocking=True)
 
-                pred = self.model(X, aux).squeeze()
+                pred = self.model(X).squeeze()
                 h = np.concatenate((h, pred.cpu().detach().numpy()), axis=None)
 
         return h
