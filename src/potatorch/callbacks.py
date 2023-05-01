@@ -8,7 +8,7 @@ from torch.optim.lr_scheduler import LinearLR, ReduceLROnPlateau
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from abc import ABC, abstractmethod
-from training import TrainingLoop
+from potatorch.training import TrainingLoop
 
 class TrainingCallback(ABC):
     """ Training Callback base class """

@@ -18,7 +18,6 @@ while true; do
 done
 
 DOCKER_BUILDKIT=1 docker build --rm \
-  -t training \
+  -t potatorch \
   -f Dockerfile.${ARCH} \
-  --build-arg WANDB_SECRET=$(cat ~/.wandb_secret) \
   .
