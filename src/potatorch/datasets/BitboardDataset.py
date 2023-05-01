@@ -7,8 +7,8 @@ import gc
 from torch.utils.data import Dataset
 # from multiprocessing import Pool
 from pathos.multiprocessing import ProcessingPool as Pool
-from datasets.utils import split_dataset
-from datasets.BitboardDecoder import BitboardDecoder
+from potatorch.datasets.utils import split_dataset
+from potatorch.datasets.BitboardDecoder import BitboardDecoder
 
 def string_to_matrix(bitboard):
     return np.array([b for b in bitboard], dtype=np.uint8).reshape(8,8).copy()

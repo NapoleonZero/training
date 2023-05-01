@@ -2,11 +2,11 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LinearLR, ReduceLROnPlateau
-from datasets.utils import split_dataset
+from potatorch.datasets.utils import split_dataset
+from potatorch.datasets.utils import RandomSubsetSampler
 from contextlib import ExitStack
 import numpy as np
 import gc
-from datasets.utils import RandomSubsetSampler
 
 class TrainingLoop():
     def __init__(self,
