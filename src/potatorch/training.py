@@ -21,6 +21,7 @@ class TrainingLoop():
                  shuffle=False,
                  random_subsampling=None,
                  filter_fn=None,
+                 num_workers=4,
                  device='cpu',
                  mixed_precision=False,
                  callbacks=[],
@@ -38,6 +39,7 @@ class TrainingLoop():
         self.shuffle = shuffle
         self.random_subsampling = random_subsampling
         self.filter_fn = filter_fn
+        self.num_workers = num_workers
         self.device = device
         self.mixed_precision = mixed_precision
         self.verbose = verbose
@@ -84,8 +86,8 @@ class TrainingLoop():
                 sampler=sampler,
                 collate_fn=self._collate_fn,
                 pin_memory=True,
-                num_workers=8,
-                prefetch_factor=8,
+                num_workers=self.num_workers,
+                prefetch_factor=self.num_workers*2,
                 # TODO: how to pass worker_init_fn
                 # worker_init_fn=dataset.worker_init_fn,
                 persistent_workers=False)
@@ -94,8 +96,8 @@ class TrainingLoop():
                 collate_fn=self._collate_fn,
                 shuffle=False,
                 pin_memory=True,
-                num_workers=4,
-                prefetch_factor=8,
+                num_workers=self.num_workers,
+                prefetch_factor=self.num_workers*2,
                 persistent_workers=True)
         test_dl = DataLoader(test_ds,
                 batch_size=self.batch_size,
@@ -289,10 +291,6 @@ class TrainingLoop():
 
         for c in self.callbacks: c.on_train_batch_end(self)
 
-        # if batch_num % 10000 == 0:
-        #     torch.cuda.empty_cache()
-        #     gc.collect()
-
     def on_train_epoch_start(self, epoch_num):
         self.update_metric('mean_loss', 0.0)
         self.update_state('epoch', epoch_num)
@@ -303,7 +301,6 @@ class TrainingLoop():
         # the training stopped mid-epoch
         self.update_state('epoch', epoch_num + 1)
         for c in self.callbacks: c.on_train_epoch_end(self)
-        torch.cuda.empty_cache()
 
     def on_validation_batch_start(self):
         for c in self.callbacks: c.on_validation_batch_start(self)
@@ -320,7 +317,6 @@ class TrainingLoop():
         for metric, value in other_metrics.items():
             self.update_metric(f'val_{metric}', value)
         for c in self.callbacks: c.on_validation_end(self)
-        torch.cuda.empty_cache()
 
     # TODO: maybe use an other class for evaluation?
     def evaluate(self):
