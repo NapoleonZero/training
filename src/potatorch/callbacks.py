@@ -103,12 +103,12 @@ class ProgressbarCallback(TrainingCallback):
         val_loss = state.get_last_metric('val_loss')
         other_metrics = state.val_metrics.keys()
         if val_loss is not None:
-            self.kbar.add(1, values=[('val_loss', val_loss)])
-
-        for metric in other_metrics:
-            metric = f'val_{metric}'
-            self.kbar.add(1, values=[(metric, state.get_last_metric(metric))])
-
+            # formatting rule for validation metrics: val_{metric}
+            val_m = lambda m: f'val_{m}'
+            self.kbar.add(1, values=[('val_loss', val_loss), 
+                # retrieve and zip other validation metrics from the state
+                *[(val_m(m), state.get_last_metric(val_m(m))) for m in other_metrics]
+                ])
 
 class LRSchedulerCallback(TrainingCallback):
     def __init__(self, optimizer, warmup_steps=1000, cosine_annealing=True, restart=False, cosine_tmax=None, cosine_factor=None, min_lr=0.0):
