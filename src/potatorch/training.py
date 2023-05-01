@@ -45,6 +45,7 @@ class TrainingLoop():
         self.val_metrics = val_metrics
         self.seed = 42
 
+        self.model.to(device)
         self._clear_state()
         self._init_dataloaders()
 
