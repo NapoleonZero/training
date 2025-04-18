@@ -1,10 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # --shm-size 8G \
 
 docker run -it \
   --rm \
-  --gpus all \
-  --runtime=nvidia \
+  --device=nvidia.com/gpu=all \
   --privileged \
   --ipc=host \
   -p 8888:8888 \

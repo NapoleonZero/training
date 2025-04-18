@@ -1,8 +1,6 @@
 import numpy as np
-import pandas as pd
 import struct
 import mmap
-import itertools
 import os
 
 STRUCT_FORMAT = '>QQQQQQQQQQQQbbbe'
@@ -32,7 +30,12 @@ class BitboardDecoder():
             self.f.seek(offset)
             bytes = self.f.read(self.line_size)
 
-        line = np.array(struct.unpack(STRUCT_FORMAT, bytes))
+        try:
+            line = struct.unpack(STRUCT_FORMAT, bytes)
+        except Exception as e:
+            print(f'Exception thrown while decoding: {idx}')
+            print(e)
+            exit(1)
 
         return line
 

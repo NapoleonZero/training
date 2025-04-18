@@ -5,19 +5,16 @@ import numpy as np
 import pandas as pd
 import math
 import torch
-from torch import nn
-import torch.nn.utils.prune as prune
+from torch import nn, Tensor
 import torch.nn.functional as F
-from torch.utils.mobile_optimizer import optimize_for_mobile
-from torch._C import MobileOptimizerType
 from functools import partial
 
 from datasets import BitboardDataset, FilteredDataset
 from models import CNN, BitboardTransformer 
-from utils import download_wandb_checkpoint, save_wandb_file
-from training import TrainingLoop
-from callbacks import TrainingCallback, ProgressbarCallback, LRSchedulerCallback
-from callbacks import WandbCallback, CheckpointCallback, SanityCheckCallback
+from potatorch.utils import download_wandb_checkpoint, save_wandb_file
+from potatorch.training import TrainingLoop
+from potatorch.callbacks import TrainingCallback, ProgressbarCallback, LRSchedulerCallback
+from potatorch.callbacks import WandbCallback, CheckpointCallback, SanityCheckCallback
 from datasets.BitboardDataset import string_to_matrix
 from losses import MSRELoss
 import sys
@@ -27,7 +24,7 @@ def set_random_state(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.backends.cudnn.benchmark = False
-    torch.use_deterministic_algorithms(True)
+    # torch.use_deterministic_algorithms(True)
 
 def params_count(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -82,6 +79,24 @@ def filter_scores(filter_threshold: int, data: tuple) -> bool:
     """ Filter scores based on a given cutoff threshold """
     return abs(data[2]) < filter_threshold
 
+# TODO: forward should only perform model.forward()
+class CustomTrainingLoop(TrainingLoop):
+    def forward(self, inputs, *args, **kwargs) -> Tensor:
+        (X, aux, ys) = inputs
+        X = X.float()
+        aux = aux.float()
+        ys = ys.float()
+
+        pred = self.model(X, aux)
+        return pred
+
+    def compute_loss(self, inputs, pred, *args, **kwargs) -> Tensor:
+        (X, aux, ys) = inputs
+        ys = ys.float()
+        loss = self.loss_fn(pred.view(-1), ys)
+        return loss
+
+
 def main():
     SEED = 42
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -91,11 +106,13 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using {device} device")
 
-    DRIVE_PATH = f'{sys.path[0]}/../datasets'
+    DRIVE_PATH = f'{sys.path[0]}/../datasets/datasets'
     ARTIFACTS_PATH = f'{sys.path[0]}/../artifacts'
-    DATASET = 'lichess151M-preprocessed.bin'
+    # DATASET = 'lichess151M-preprocessed.bin'
+    DATASET = 'lichess-290M-packed.bin'
 
     (check_fen, check_x, check_aux) = read_positions(f'{sys.path[0]}/sanity_check.csv')
+    check_y = np.zeros((len(check_x), 1))
 
     oversample = False
     oversample_factor = None
@@ -121,7 +138,7 @@ def main():
                 )
 
     base_lr = 1.0e-4
-    batch_size = 2**10
+    batch_size = 2**13 + 2**12
     patch_size = 1
     epochs = 100
     # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
@@ -137,7 +154,7 @@ def main():
             'oversample_target': oversample_target,
             'filter-threshold': filter_threshold,
             'augment-rate': augment_rate,
-            'cnn-projection': True,
+            'cnn-projection': False,
             'cnn-output-channels': 128,
             'cnn-layers': 3,
             'cnn-kernel-size': 3,
@@ -149,8 +166,8 @@ def main():
             'vit-dim': 128,
             'vit-depth': 6,
             'vit-heads': 8,
-            'vit-hierarchical': True,
-            'vit-hierarchical-blocks': 1,
+            'vit-hierarchical': False,
+            'vit-hierarchical-blocks': 0,
             'vit-stages-depth': [3, 3],
             'vit-merging-strategy': '1d', # TODO: test 2d mode more throughly
             'vit-mlp-dim': 256,
@@ -160,7 +177,7 @@ def main():
             'vit-stochastic-depth-mode': 'row',
             'vit-random-patch-projection': False,
             'vit-channel-pos-encoding': True,
-            'vit-learned-pos-encoding': False,
+            'vit-learned-pos-encoding': True,
             'material_head': False,
             'weight-decay': 1e-2,
             'learning-rate': base_lr * batch_size / 256,
@@ -177,7 +194,7 @@ def main():
             'test-split-perc': 0.0025,
             'batch-size': batch_size,
             'shuffle': False,
-            'random-subsampling': 0.1,
+            'random-subsampling': None,
             'mixed-precision': True,
             }
 
@@ -207,11 +224,12 @@ def main():
                 material_head=config['material_head'],
                 dropout=config['vit-dropout'],
                 emb_dropout=config['vit-emb-dropout']
-            ).to(device, memory_format=torch.channels_last)
+            )
+    model = model.to(device, memory_format=torch.channels_last) # linter error for some reason
     print_summary(model)
 
-    # loss_fn = nn.MSELoss()
-    loss_fn = MSRELoss(delta=(filter_threshold + 1))
+    loss_fn = nn.MSELoss()
+    # loss_fn = MSRELoss(delta=(filter_threshold + 1))
     # TODO: try gradient clipping
     optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -223,7 +241,7 @@ def main():
     epochs = config['epochs']
 
     sanity_check_callback = SanityCheckCallback(
-            data=list(zip(check_x, check_aux)),
+            data=list(zip(check_x, check_aux, check_y)),
             descriptors=check_fen,
             # transform=(lambda x, aux: (rescale_bitboards(x), aux)),
             target_transform=(lambda y: y / target_scale)
@@ -241,17 +259,20 @@ def main():
             sync_wandb=True,
             debug=True
             )
-    anomaly_detection = CheckpointCallback(
-            path=ARTIFACTS_PATH + '/anomaly_checkpoint.pt',
-            save_best=False,
-            detect_anomaly=True,
-            metric='mean_loss',
-            sync_wandb=True,
-            debug=True
-            )
+    # anomaly_detection = CheckpointCallback(
+    #         path=ARTIFACTS_PATH + '/anomaly_checkpoint.pt',
+    #         save_best=False,
+    #         detect_anomaly=True,
+    #         metric='mean_loss',
+    #         sync_wandb=True,
+    #         debug=True
+    #         )
+
+    l1 = lambda pred, inputs: F.l1_loss(pred.view(-1), inputs[-1])
+    mse = lambda pred, inputs: F.mse_loss(pred.view(-1), inputs[-1])
 
     #TODO: maybe pass config as parameter
-    training_loop = TrainingLoop(
+    training_loop = CustomTrainingLoop(
             model,
             dataset,
             loss_fn,
@@ -262,12 +283,12 @@ def main():
             batch_size=config['batch-size'],
             shuffle=config['shuffle'],
             random_subsampling=config['random-subsampling'],
-            filter_fn=partial(filter_scores, filter_threshold),
+            # filter_fn=partial(filter_scores, filter_threshold),
             device=device,
+            num_workers=16,
             mixed_precision=config['mixed-precision'],
-            verbose=1,
             seed=SEED,
-            val_metrics={'l1': nn.L1Loss(), 'mse': nn.MSELoss()},
+            val_metrics={'l1': l1, 'mse': mse},
             callbacks=[
                 LRSchedulerCallback(
                     optimizer,
@@ -281,9 +302,9 @@ def main():
                 ProgressbarCallback(
                     epochs=epochs,
                     width=20),
-                wandb_callback,
-                checkpoint_callback,
-                anomaly_detection,
+                # wandb_callback,
+                # checkpoint_callback,
+                # anomaly_detection,
                 sanity_check_callback
                 ]
             )
@@ -297,22 +318,22 @@ def main():
     # wandb_callback.init()
     # serialize(model, training_loop, f'{ARTIFACTS_PATH}/script.pt', optimize=False)
 
-def serialize(model, training_loop, path, optimize=True):
-    # torch._C._jit_set_profiling_executor(False)
-    model.eval()
-
-    serialized_model = torch.jit.script(model)
-    if optimize:
-        serialized_model = optimize_for_mobile(
-                serialized_model,
-                optimization_blocklist=set([MobileOptimizerType.INSERT_FOLD_PREPACK_OPS, MobileOptimizerType.HOIST_CONV_PACKED_PARAMS]),
-                backend='CPU')
-
-    serialized_model = torch.jit.freeze(serialized_model)
-    serialized_model = torch.jit.optimize_for_inference(serialized_model)
-    serialized_model.save(path)
-    save_wandb_file(path)
-    return serialized_model
+# def serialize(model, training_loop, path, optimize=True):
+#     # torch._C._jit_set_profiling_executor(False)
+#     model.eval()
+# 
+#     serialized_model = torch.jit.script(model)
+#     if optimize:
+#         serialized_model = optimize_for_mobile(
+#                 serialized_model,
+#                 optimization_blocklist=set([MobileOptimizerType.INSERT_FOLD_PREPACK_OPS, MobileOptimizerType.HOIST_CONV_PACKED_PARAMS]),
+#                 backend='CPU')
+# 
+#     serialized_model = torch.jit.freeze(serialized_model)
+#     serialized_model = torch.jit.optimize_for_inference(serialized_model)
+#     serialized_model.save(path)
+#     save_wandb_file(path)
+#     return serialized_model
 
 
 def evaluate(sanity_check_callback, training_loop):

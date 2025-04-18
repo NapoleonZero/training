@@ -7,7 +7,7 @@ import gc
 from torch.utils.data import Dataset
 # from multiprocessing import Pool
 from pathos.multiprocessing import ProcessingPool as Pool
-from datasets.utils import split_dataset
+from potatorch.datasets.utils import split_dataset
 from datasets.BitboardDecoder import BitboardDecoder
 
 def string_to_matrix(bitboard):
@@ -258,9 +258,9 @@ class BitboardDataset(Dataset):
     def __getitem__(self, idx):
         if self.low_memory:
             entry = self.decoder.read_line(idx)
-            target = entry[-1]
-            features = entry[:-4]
-            aux = entry[-4:-1]
+            target = np.array(entry[-1])
+            features = np.array(entry[:-4], dtype=np.uint64)
+            aux = np.array(entry[-4:-1])
         elif not self.preload:
             entry = self._preprocess_row(self.dataset.iloc[idx])
             target = entry.iloc[-1]
@@ -280,8 +280,15 @@ class BitboardDataset(Dataset):
                 target = self.scores[idx]
                 aux = self.aux[idx]
 
-        
-        features = np.array([uint_to_bits(b).reshape(8,8) for b in features])
+        try:
+            # Temporarily treat 'invalid value' warnings as exceptions
+            with np.errstate(invalid='raise'):
+                features = np.array([uint_to_bits(b).reshape(8,8) for b in features])
+        except Exception as e:
+            print(f"Exception thrown while decoding: {entry}")
+            print(f"features: {features}")
+            print(f"Error: {e}")
+            exit(1)
 
         if self.transform:
             (features, aux) = self.transform(features, aux)

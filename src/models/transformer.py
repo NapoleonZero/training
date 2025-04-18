@@ -381,14 +381,13 @@ class BitboardTransformer(nn.Module):
         """ Encodes positional information to the input as an additional channel """
         device = x.device
 
-        # if learned:
-        #     pe = self.pos_embedding
-        # else:
-        pe = ((torch.arange(height*width, device=device) + 1) * scale).reshape(height, width)
+        if learned:
+            pe = self.pos_embedding
+        else:
+            pe = ((torch.arange(height*width, device=device) + 1) * scale).reshape(height, width)
 
         pe = pe.expand(x.shape[0], 1, height, width)
         return torch.cat((x, pe), dim=1)
-
 
     def forward(self, x, aux):
         if self.material_head:

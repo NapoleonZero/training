@@ -1,7 +1,7 @@
 #TODO: run optimization on cpu-only pytorch container
 # FROM pytorch/pytorch:1.12.1-cuda11.3-cudnn8-devel
 #TODO: JUPYTER arg
-FROM nvcr.io/nvidia/pytorch:22.09-py3 
+FROM nvcr.io/nvidia/pytorch:24.08-py3
 ARG WANDB_SECRET
 RUN apt-get update -y && apt-get install git -y
 RUN pip install pandas numpy pkbar einops jupyterlab pathos
