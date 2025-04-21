@@ -1,13 +1,12 @@
 #!/usr/bin/python3
 
+import yaml
 import random
 import numpy as np
 import pandas as pd
-import math
 import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
-from functools import partial
 
 from datasets import BitboardDataset, FilteredDataset
 from models import CNN, BitboardTransformer 
@@ -33,6 +32,8 @@ def print_summary(model):
     print(model)
     print(f'Number of parameters: {params_count(model)}')
 
+
+# TODO: move these utility functions to a separate file
 def read_bitboards(csv):
   """ csv: comma separated set of bitboards.
            Each element of the set is a string of 64 binary values.
@@ -79,7 +80,15 @@ def filter_scores(filter_threshold: int, data: tuple) -> bool:
     """ Filter scores based on a given cutoff threshold """
     return abs(data[2]) < filter_threshold
 
-# TODO: forward should only perform model.forward()
+def load_config(path: str) -> dict:
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+def make_loss_fn(name: str) -> nn.Module:
+    if name == 'mse':
+        return nn.MSELoss()
+    raise Exception(f"{name}: Loss not implemented yet.")
+
 class CustomTrainingLoop(TrainingLoop):
     def forward(self, inputs, *args, **kwargs) -> Tensor:
         (X, aux, ys) = inputs
@@ -96,149 +105,54 @@ class CustomTrainingLoop(TrainingLoop):
         loss = self.loss_fn(pred.view(-1), ys)
         return loss
 
-
 def main():
-    SEED = 42
-    torch.backends.cuda.matmul.allow_tf32 = True
+    config = load_config(f'{sys.path[0]}/../config/vit_training.yaml')
+
+    SEED = config['general']['seed']
+    DRIVE_PATH = f'{sys.path[0]}/../datasets/datasets'
+    ARTIFACTS_PATH = f'{sys.path[0]}/../artifacts'
+
     set_random_state(SEED)
 
     # Get cpu or gpu device for training.
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = config['general']['device']
     print(f"Using {device} device")
 
-    DRIVE_PATH = f'{sys.path[0]}/../datasets/datasets'
-    ARTIFACTS_PATH = f'{sys.path[0]}/../artifacts'
-    # DATASET = 'lichess151M-preprocessed.bin'
-    DATASET = 'lichess-290M-packed.bin'
+    torch.backends.cuda.matmul.allow_tf32 = True # TODO: why?
 
     (check_fen, check_x, check_aux) = read_positions(f'{sys.path[0]}/sanity_check.csv')
-    check_y = np.zeros((len(check_x), 1))
+    check_y = np.zeros((len(check_x), 1)) # mock target (not used, but necessary)
 
-    oversample = False
-    oversample_factor = None
-    oversample_target = None
-    target_scale = 1e-3
-    filter_threshold = 2000 * target_scale
-    mate_value = filter_threshold * 0.9999
-    augment_rate = 0.0
+    # filter_threshold = 2000 * target_scale
+    # mate_value = filter_threshold * 0.9999
+    target_scale = config['general']['target_scale'] # further rescale the target score so that it's a smaller value
     dataset = BitboardDataset(
-                dir=DRIVE_PATH, filename=DATASET, seed=SEED,
+                dir=DRIVE_PATH,
+                seed=SEED,
                 glob=False,
                 preload=False,
                 from_dump=False,
                 low_memory=True,
-                oversample=oversample,
-                oversample_factor=oversample_factor,
-                oversample_target=oversample_target,
                 fraction=1.0,
+                target_transform=(lambda y: y * 100 * target_scale), # scores are in centipawns / 100
+                debug=True,
+                **config['dataset'],
                 # transform=(lambda x, aux: (rescale_bitboards(x), aux)),
-                target_transform=(lambda y: y * 100 * target_scale), # for stockfish evaluations
-                augment_rate=augment_rate,
-                debug=True
                 )
+    config['dataset']['size'] = len(dataset)
 
-    base_lr = 1.0e-4
-    batch_size = 2**13 + 2**12
-    patch_size = 1
-    epochs = 100
-    # TODO: retrieve some of this stuff automatically from TrainingLoop during callback 
-    # TODO: move to a YAML file
+    # TODO: retrieve some of this stuff automatically from TrainingLoop during callback (what?)
     # TODO: multiplying bitboards planes seems to be helpful (e.g. pawn * 0.1, bishop * 0.2, etc.)
-    config = {
-            'seed': SEED,
-            'device': device,
-            'dataset': DATASET,
-            'dataset-size': len(dataset),
-            'oversample': oversample,
-            'oversample_factor': oversample_factor,
-            'oversample_target': oversample_target,
-            'filter-threshold': filter_threshold,
-            'augment-rate': augment_rate,
-            'cnn-projection': False,
-            'cnn-output-channels': 128,
-            'cnn-layers': 3,
-            'cnn-kernel-size': 3,
-            'cnn-residual': False,
-            'cnn-pool': False,
-            'cnn-depthwise': False,
-            'cnn-squeeze': False,
-            'vit-patch-size': patch_size,
-            'vit-dim': 128,
-            'vit-depth': 6,
-            'vit-heads': 8,
-            'vit-hierarchical': False,
-            'vit-hierarchical-blocks': 0,
-            'vit-stages-depth': [3, 3],
-            'vit-merging-strategy': '1d', # TODO: test 2d mode more throughly
-            'vit-mlp-dim': 256,
-            'vit-dropout': 0.01,
-            'vit-emb-dropout': 0.0,
-            'vit-stochastic-depth-p': 0.0,
-            'vit-stochastic-depth-mode': 'row',
-            'vit-random-patch-projection': False,
-            'vit-channel-pos-encoding': True,
-            'vit-learned-pos-encoding': True,
-            'material_head': False,
-            'weight-decay': 1e-2,
-            'learning-rate': base_lr * batch_size / 256,
-            'lr-warmup-steps': 10000,
-            'lr-cosine-annealing': True,
-            'lr-cosine-tmax': epochs,
-            'lr-cosine-factor': 1,
-            'lr-restart': False,
-            'min-lr': 1e-6,
-            'adam-betas': (0.9, 0.999),
-            'epochs': epochs,
-            'train-split-perc': 0.995,
-            'val-split-perc': 0.0025,
-            'test-split-perc': 0.0025,
-            'batch-size': batch_size,
-            'shuffle': False,
-            'random-subsampling': None,
-            'mixed-precision': True,
-            }
 
-    model = BitboardTransformer(
-                cnn_projection=config['cnn-projection'],
-                cnn_out_channels=config['cnn-output-channels'],
-                cnn_layers=config['cnn-layers'],
-                cnn_kernel_size=config['cnn-kernel-size'],
-                cnn_residual=config['cnn-residual'],
-                cnn_pool=config['cnn-pool'],
-                cnn_depthwise=config['cnn-depthwise'],
-                cnn_squeeze=config['cnn-squeeze'],
-                hierarchical=config['vit-hierarchical'],
-                hierarchical_blocks=config['vit-hierarchical-blocks'],
-                stages_depth=config['vit-stages-depth'],
-                merging_strategy=config['vit-merging-strategy'],
-                stochastic_depth_p=config['vit-stochastic-depth-p'],
-                stochastic_depth_mode=config['vit-stochastic-depth-mode'],
-                patch_size=config['vit-patch-size'],
-                dim=config['vit-dim'],
-                depth=config['vit-depth'],
-                heads=config['vit-heads'],
-                mlp_dim=config['vit-mlp-dim'],
-                random_patch_projection=config['vit-random-patch-projection'],
-                channel_pos_encoding=config['vit-channel-pos-encoding'],
-                learned_pos_encoding=config['vit-learned-pos-encoding'],
-                material_head=config['material_head'],
-                dropout=config['vit-dropout'],
-                emb_dropout=config['vit-emb-dropout']
-            )
+    model = BitboardTransformer(**config['model'])
     model = model.to(device, memory_format=torch.channels_last) # linter error for some reason
     print_summary(model)
 
-    loss_fn = nn.MSELoss()
-    # loss_fn = MSRELoss(delta=(filter_threshold + 1))
     # TODO: try gradient clipping
     optimizer = torch.optim.AdamW(
             model.parameters(),
-            betas=config['adam-betas'],
-            weight_decay=config['weight-decay'],
-            lr=config['learning-rate']
+            **{**config['optimizer'], 'betas': tuple(config.get('optimizer', {}).get('betas', [0.9, 0.999]))}
             )
-
-    epochs = config['epochs']
 
     sanity_check_callback = SanityCheckCallback(
             data=list(zip(check_x, check_aux, check_y)),
@@ -250,7 +164,7 @@ def main():
             project_name='napoleon-zero-pytorch',
             entity='marco-pampaloni',
             config=config,
-            tags=['test-new-dataset-12M']
+            tags=config['general']['tags']
             )
     checkpoint_callback = CheckpointCallback(
             path=ARTIFACTS_PATH + '/checkpoint.pt',
@@ -271,49 +185,42 @@ def main():
     l1 = lambda pred, inputs: F.l1_loss(pred.view(-1), inputs[-1])
     mse = lambda pred, inputs: F.mse_loss(pred.view(-1), inputs[-1])
 
-    #TODO: maybe pass config as parameter
+    # loss_fn = MSRELoss(delta=(filter_threshold + 1))
+    epochs = config['general']['epochs']
+    loss_fn = make_loss_fn(config['general']['loss_function'])
+    lr_scheduler = LRSchedulerCallback(
+                    optimizer,
+                    **config['lr_scheduler']
+                    )
     training_loop = CustomTrainingLoop(
             model,
             dataset,
             loss_fn,
             optimizer,
-            train_p=config['train-split-perc'],
-            val_p=config['val-split-perc'],
-            test_p=config['test-split-perc'],
-            batch_size=config['batch-size'],
-            shuffle=config['shuffle'],
-            random_subsampling=config['random-subsampling'],
-            # filter_fn=partial(filter_scores, filter_threshold),
+            **config['training'],
+            seed=SEED,
             device=device,
             num_workers=16,
-            mixed_precision=config['mixed-precision'],
-            seed=SEED,
             val_metrics={'l1': l1, 'mse': mse},
             callbacks=[
-                LRSchedulerCallback(
-                    optimizer,
-                    warmup_steps=config['lr-warmup-steps'],
-                    cosine_annealing=config['lr-cosine-annealing'],
-                    cosine_tmax=config['lr-cosine-tmax'],
-                    cosine_factor=config['lr-cosine-factor'],
-                    restart=config['lr-restart'],
-                    min_lr=config['min-lr']
-                    ),
+                lr_scheduler,
                 ProgressbarCallback(
                     epochs=epochs,
                     width=20),
-                # wandb_callback,
-                # checkpoint_callback,
+                wandb_callback,
+                checkpoint_callback,
+                sanity_check_callback,
                 # anomaly_detection,
-                sanity_check_callback
-                ]
+                ],
+            # filter_fn=partial(filter_scores, filter_threshold),
             )
-    model = training_loop.run(epochs=epochs)
-
-    # torch.autograd.set_detect_anomaly(True)
-    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/1pkd6poq', 'anomaly_checkpoint.pt', device=device)
-    # training_loop.load_state(checkpoint)
     # model = training_loop.run(epochs=epochs)
+    # # torch.autograd.set_detect_anomaly(True)
+
+    checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/bjymd6lu', 'checkpoint.pt', device=device)
+    training_loop.load_state(model, checkpoint)
+    lr_scheduler.reset()
+    model = training_loop.run(epochs=epochs)
 
     # wandb_callback.init()
     # serialize(model, training_loop, f'{ARTIFACTS_PATH}/script.pt', optimize=False)
