@@ -1,11 +1,5 @@
 { pkgs ? import <nixpkgs> {} }:
 let
-  # Define your custom package from PyPI
-
-  # potatorch = pkgs.python312Packages.buildPythonPackage rec {
-  #   pname = "potatorch";
-  #   version = 
-  # }
 
   pkbar = pkgs.python312Packages.buildPythonPackage rec {
     pname = "pkbar";
@@ -36,11 +30,14 @@ in
       pkgs.python312Packages.einops
       pkbar
     ];
+    # TODO: adding nvidia-x11/lib to LD_LIBRARY_PATH makes wandb correctly collect gpu metrics, but it's not
+    # machine-agnostic
     shellHook = ''
-      if [ ! -d .venv ]; then
-        echo "Creating virtualenv in .venv"
-        python -m venv .venv
-      fi
-      echo "Activate python environment, then run: pip install -e ."
+      export LD_LIBRARY_PATH=/nix/store/kbmp6wl3a0h0gy25xxdblc892rp69qpm-nvidia-x11-570.133.07-6.14.1/lib:$LD_LIBRARY_PATH
+      # if [ ! -d .venv ]; then
+      #   echo "Creating virtualenv in .venv"
+      #   python -m venv .venv
+      # fi
+      # echo "Activate python environment, then run: pip install -e ."
     ''; 
   }
