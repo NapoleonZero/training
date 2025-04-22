@@ -219,7 +219,7 @@ def main():
 
     checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/bjymd6lu', 'checkpoint.pt', device=device)
     training_loop.load_state(model, checkpoint)
-    lr_scheduler.reset()
+    # lr_scheduler.reset()
     model = training_loop.run(epochs=epochs)
 
     # wandb_callback.init()

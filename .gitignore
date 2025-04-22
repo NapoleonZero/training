@@ -5,6 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
+.direnv/
 
 # Distribution / packaging
 .Python
@@ -127,3 +128,8 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+artifacts/
+checkpoint.pt
+potatorch/
+src/wandb/
+wandb/
