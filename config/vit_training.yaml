@@ -4,8 +4,8 @@ general:
   device: cuda
   target_scale: 1.0e-3
   loss_function: mse
-  tags: []
-  epochs: 10 # With 10 epochs the model is still undertrained
+  tags: ['test', 'new_transformer_implementation', 'cnn_stem']
+  epochs: 20 # With 10 epochs the model is still undertrained
   # filter_threshold: null
 
 dataset:
@@ -16,7 +16,7 @@ dataset:
   augment_rate: 0.0
 
 model:
-  cnn_projection: False
+  cnn_projection: True
   cnn_out_channels: 128
   cnn_layers: 3
   cnn_kernel_size: 3
@@ -60,7 +60,7 @@ optimizer:
 lr_scheduler:
   warmup_steps: 2000
   cosine_annealing: True
-  cosine_tmax: 10 # same as epochs
+  cosine_tmax: 20 # same as epochs
   cosine_factor: 1
   restart: False
   min_lr: 1.0e-6

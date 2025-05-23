@@ -3,15 +3,12 @@ general:
   seed: 42
   device: cuda
   target_scale: 1.0
-  # target_scale: 1.0e-1
   mate_value: 30.0 # QUEEN_SCORE * 3
   loss_function: mse
-  # loss_function: wdl
-  # loss_function: huber
-  # logits_target_scale: 0.4
-  epochs: 20 # With 10 epochs the model is still undertrained
+  epochs: 10 # With 10 epochs the model is still undertrained
   filter_threshold: null
-  tags: ['test', 'fixed_mate_score', 'new_transformer_implementation']
+  augmentations: ['rotation']
+  tags: ['test', 'fixed_mate_score', 'new_transformer_implementation', 'rotation_augmentation']
 
 dataset:
   filename: lichess-290M-packed.bin
@@ -65,7 +62,7 @@ optimizer:
 lr_scheduler:
   warmup_steps: 2000
   cosine_annealing: True
-  cosine_tmax: 20 # same as epochs
+  cosine_tmax: 10 # same as epochs
   cosine_factor: 1
   restart: False
   min_lr: 1.0e-6

@@ -2,16 +2,13 @@
 general:
   seed: 42
   device: cuda
-  target_scale: 1.0
   # target_scale: 1.0e-1
+  target_scale: 1.0
   mate_value: 30.0 # QUEEN_SCORE * 3
   loss_function: mse
-  # loss_function: wdl
-  # loss_function: huber
-  # logits_target_scale: 0.4
-  epochs: 20 # With 10 epochs the model is still undertrained
+  epochs: 20 # Still undertrained with 20 epochs
   filter_threshold: null
-  tags: ['test', 'fixed_mate_score', 'new_transformer_implementation']
+  tags: ['test', 'fixed_mate_score', 'new_transformer_implementation', 'hierarchical']
 
 dataset:
   filename: lichess-290M-packed.bin
@@ -33,9 +30,9 @@ model:
   dim: 128
   depth: 6
   heads: 8
-  hierarchical: False
-  hierarchical_blocks: 0
-  stages_depth: []
+  hierarchical: True
+  hierarchical_blocks: 1
+  stages_depth: [3, 3]
   merging_strategy: 1d # TODO: test 2d mode more throughly
   mlp_dim: 256
   dropout: 0.01
