@@ -290,6 +290,9 @@ class BitboardDataset(Dataset):
             print(f"Error: {e}")
             exit(1)
 
+        # TODO: test this
+        # target = torch.from_numpy(target).float()
+
         if self.transform:
             (features, aux) = self.transform(features, aux)
 
