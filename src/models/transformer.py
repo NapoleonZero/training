@@ -444,25 +444,28 @@ class ViT(nn.Module):
     pool: Final[str]
 
     def __init__(self, *,
-            image_size,
-            patch_size,
-            num_classes,
-            dim,
-            depth,
-            heads, 
-            mlp_dim,
-            hierarchical = False,
-            merging_blocks = 0,
-            merging_strategy = '1d',
-            stages_depth = [],
-            stochastic_depth_p = 0.0,
-            stochastic_depth_mode = 'row',
-            pool = 'cls',
-            channels = 3,
-            random_patch_projection = True,
-            dim_head = 64,
-            dropout = 0.0,
-            emb_dropout = 0.0):
+                 image_size,
+                 patch_size,
+                 num_classes,
+                 dim,
+                 depth,
+                 heads, 
+                 mlp_dim,
+                 policy_head=False,
+                 policy_depth=10,
+                 policy_classes=4096,
+                 hierarchical = False,
+                 merging_blocks = 0,
+                 merging_strategy = '1d',
+                 stages_depth = [],
+                 stochastic_depth_p = 0.0,
+                 stochastic_depth_mode = 'row',
+                 pool = 'cls',
+                 channels = 3,
+                 random_patch_projection = True,
+                 dim_head = 64,
+                 dropout = 0.0,
+                 emb_dropout = 0.0):
         super().__init__()
         image_height, image_width = pair(image_size)
         patch_height, patch_width = pair(patch_size)
@@ -471,6 +474,9 @@ class ViT(nn.Module):
         self.stochastic_depth_p = stochastic_depth_p
         self.stochastic_depth_mode = stochastic_depth_mode
         self.pool = pool
+        self.policy_head = policy_head
+        self.policy_depth = policy_depth
+        self.policy_classes = policy_classes
 
         # TODO: error messages
         assert merging_blocks == 0 or hierarchical
@@ -544,6 +550,15 @@ class ViT(nn.Module):
                 nn.Linear(out_dim, num_classes)
         )
 
+        if self.policy_head:
+            self.policy_mlp = nn.Sequential(
+                nn.LayerNorm(out_dim),
+                nn.Linear(out_dim, out_dim * 2),
+                nn.ReLU(),
+                nn.Linear(out_dim * 2, self.policy_depth * self.policy_classes),
+                Rearrange('b (d c) -> b d c', d = self.policy_depth, c = self.policy_classes)
+            )
+
     def forward(self, img, aux):
         x = self.to_patch_embedding(img)
         b, n, _ = x.shape
@@ -564,6 +579,10 @@ class ViT(nn.Module):
             x = stage(x)
 
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
+
+        if self.policy_head:
+            a = self.policy_mlp(x)
+            return self.mlp_head(x), a
 
         return self.mlp_head(x)
 
@@ -628,6 +647,9 @@ class BitboardTransformer(nn.Module):
                  stochastic_depth_p=0.0,
                  stochastic_depth_mode='row',
                  material_head=False,
+                 policy_head=False,
+                 policy_depth=10,
+                 policy_classes=4096,
                  patch_size=2,
                  dim=64,
                  depth=12,
@@ -689,7 +711,10 @@ class BitboardTransformer(nn.Module):
                     random_patch_projection=random_patch_projection,
                     pool='mean',
                     dropout=dropout,
-                    emb_dropout=emb_dropout
+                    emb_dropout=emb_dropout,
+                    policy_head=policy_head,
+                    policy_depth=policy_depth,
+                    policy_classes=policy_classes
                     )
 
         # self.material_mlp = nn.Sequential(

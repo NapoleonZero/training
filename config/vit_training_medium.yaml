@@ -1,0 +1,72 @@
+# TODO: maybe drop the general key and make these fields top level
+general:
+  seed: 42
+  device: cuda
+  target_scale: 1.0
+  # target_scale: 1.0e-1
+  mate_value: 30.0 # QUEEN_SCORE * 3
+  loss_function: mse
+  # loss_function: wdl
+  # loss_function: huber
+  # logits_target_scale: 0.4
+  epochs: 20 # With 10 epochs the model is still undertrained
+  filter_threshold: null
+  tags: ['test', 'fixed_mate_score', 'new_transformer_implementation']
+
+dataset:
+  filename: lichess-290M-packed.bin
+  oversample: False
+  oversample_factor: null
+  oversample_target: null
+  augment_rate: 0.0
+
+model:
+  cnn_projection: True
+  cnn_out_channels: 128
+  cnn_layers: 4
+  cnn_kernel_size: 3
+  cnn_residual: True
+  cnn_pool: False
+  cnn_depthwise: False
+  cnn_squeeze: True
+  patch_size: 1
+  dim: 256
+  depth: 12
+  heads: 8
+  hierarchical: False
+  hierarchical_blocks: 0
+  stages_depth: []
+  merging_strategy: 1d # TODO: test 2d mode more throughly
+  mlp_dim: 512
+  dropout: 0.01
+  emb_dropout: 0.0
+  stochastic_depth_p: 0.0
+  stochastic_depth_mode: row
+  random_patch_projection: False
+  channel_pos_encoding: True
+  learned_pos_encoding: True
+  material_head: False
+
+training:
+  train_p: 0.995
+  val_p: 0.0025
+  test_p: 0.0025
+  batch_size: 4096 # 2^13
+  shuffle: True
+  random_subsampling: null
+  mixed_precision: True
+
+optimizer:
+  weight_decay: 1.0e-2
+  # lr: base_lr * batch_size / (2^13 + 2^12)
+  lr: 0.0004
+  betas: [0.9, 0.999]
+
+lr_scheduler:
+  warmup_steps: 10000
+  cosine_annealing: True
+  cosine_tmax: 20 # same as epochs
+  cosine_factor: 1
+  restart: False
+  min_lr: 1.0e-6
+
