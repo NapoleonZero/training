@@ -1,5 +1,3 @@
-#!/usr/bin/python3
-
 import yaml
 import random
 import numpy as np
@@ -14,10 +12,33 @@ from potatorch.training import TrainingLoop
 from potatorch.callbacks import ProgressbarCallback, LRSchedulerCallback
 from potatorch.callbacks import WandbCallback, CheckpointCallback, SanityCheckCallback
 from datasets.BitboardDataset import string_to_matrix
-from losses import MSLELoss, WDLLoss, WMSELoss, MARELoss, SMARELoss, smare_loss, mare_loss
+from losses import MSLELoss, WDLLoss, WMSELoss, MARELoss, SMARELoss, MixedPolicyLoss
+from losses import smare_loss, mare_loss, policy_loss, policy_accuracy
 from functools import partial
 from typing import List, Callable
+from potatorch.utils import download_wandb_checkpoint
 import sys
+
+# TODO: multiplying bitboards planes seems to be helpful (e.g. pawn * 0.1, bishop * 0.2, etc.)
+# TODO: try training first with MSE and do a round of post-training optimization with a different loss
+# (e.g. binary cross-entropy loss)
+# TODO: try multiplicative conditioning with auxiliary input instead of concatenating it to the input as an
+# additional channel
+# TODO: Unwrapping the bits from the castling status of the auxiliary input might be beneficial (though the number
+# of configurations is just 2^4 = 16, so it should be easy enough for the network to discriminate each case)
+
+# TODO: Consider dividing the CNN's input tensor into 4 disjoint sectors so that at inference time at most two of
+# them have to be recomputed. The idea is that long-range dependencies are already captured by the transformer
+# layers, so lowering/decoupling the receptive field of the CNN stem should not significantly reduce performance.
+# This approach should also improve temporal-redundancy reduction techniques such as the Eventful Transformer, since
+# input tokens should retain similarities with previous positions.
+# NOTE: The CNN should only serve as a mean of encoding local invariances into the model and to extract local input
+# features for the transformer.
+# WARNING: This only work if auxiliary inputs such as side to move, en passant square and castling status are not
+# encoded as additional channels and fed to the CNN (which is the case as of now).
+# ISSUE: augmentations such as `rotate_board` are not compatibles by default with action-policy heads, unless you first
+# extract from-to squares from the butterfly index, mirror each square (sq ^ 56) and then recombine the two bytes.
+
 
 def set_random_state(seed):
     torch.manual_seed(seed)
@@ -32,7 +53,6 @@ def params_count(model):
 def print_summary(model):
     print(model)
     print(f'Number of parameters: {params_count(model)}')
-
 
 # TODO: move these utility functions to a separate file
 def read_bitboards(csv):
@@ -83,7 +103,7 @@ def rescale_bitboards(bs):
 
 def filter_scores(filter_threshold: int, data: tuple) -> bool:
     """ Filter scores based on a given cutoff threshold """
-    return abs(data[2]) < filter_threshold
+    return abs(data[-1]) < filter_threshold
 
 def load_config(path: str) -> dict:
     with open(path, 'r') as f:
@@ -96,6 +116,10 @@ def load_config(path: str) -> dict:
 def make_loss_fn(name: str, config: dict) -> nn.Module:
     if name == 'mse':
         return nn.MSELoss()
+    elif name == 'mixed_policy':
+        w_mse = config.get('general', {}).get('mse_weight', 1.0)
+        w_cat = config.get('general', {}).get('policy_weight', 1.0)
+        return MixedPolicyLoss(w_mse = w_mse, w_cat = w_cat)
     elif name == 'wmse':
         return WMSELoss()
     elif name == 'wdl':
@@ -134,7 +158,7 @@ class CustomTrainingLoop(TrainingLoop):
         self.input_features = input_features
 
     def forward(self, inputs, *args, **kwargs) -> Tensor:
-        (X, aux, ys) = inputs
+        (X, aux, *pv, ys) = inputs
         X = X.float()
         aux = aux.float()
         ys = ys.float()
@@ -142,13 +166,30 @@ class CustomTrainingLoop(TrainingLoop):
         pred = self.model(X, aux)
         return pred
 
+    # NOTE: to make `action` optional (BitboardTransformer does not necessarily output it) we mark it as a list of
+    # elements within the tuple so that when missing pv is just an empty list, otherwise is a list containing a single
+    # tensor of shape (B, PV_DEPTH, PV_CLASSES) where PV_CLASSES is the maximum number of moves (default is 4096 for
+    # from-to move encoding)
     def compute_loss(self, inputs, pred, *args, **kwargs) -> Tensor:
-        (X, aux, ys) = inputs
-        ys = ys.float()
-        if self.input_features:
-            loss = self.loss_fn(X, pred.view(-1), ys)
+        (X, aux, *pv, ys) = inputs
+
+        if isinstance(pred, tuple):
+            (score, action) = pred
         else:
-            loss = self.loss_fn(pred.view(-1), ys)
+            (score, action) = pred, None
+
+        ys = ys.float()
+
+        loss_fn = self.loss_fn
+        if self.input_features:
+            loss_fn = partial(self.loss_fn, X)
+
+        # # If principal variation target moves are provided by the dataset we pass them to the loss function
+        if action is not None and len(pv) > 0:
+            loss = loss_fn(score.view(-1), ys, action, pv[0])
+        else:
+            loss = loss_fn(score.view(-1), ys)
+
         return loss
 
 def rotate_board(bitboards, aux, score):
@@ -187,7 +228,8 @@ def map_augmentations(augmentations: List[str]) -> List[Callable]:
     return transformations
 
 def main():
-    config = load_config(f'{sys.path[0]}/../config/vit_training_baseline_augmented.yaml')
+    # config = load_config(f'{sys.path[0]}/../config/vit_training_medium.yaml')
+    config = load_config(f'{sys.path[0]}/../config/vit_training_baseline_pv.yaml')
 
     SEED = config['general']['seed']
     DRIVE_PATH = f'{sys.path[0]}/../datasets/datasets'
@@ -227,15 +269,7 @@ def main():
                 )
     config['dataset']['size'] = len(dataset)
 
-    # TODO: multiplying bitboards planes seems to be helpful (e.g. pawn * 0.1, bishop * 0.2, etc.)
-    # TODO: try training first with MSE and do a round of post-training optimization with a different loss
-    # (e.g. binary cross-entropy loss)
-    # TODO: try multiplicative conditioning with auxiliary input instead of concatenating it to the input as an
-    # additional channel
-    # TODO: Unwrapping the bits from the castling status of the auxiliary input might be beneficial (though the number
-    # of configurations is just 2^4 = 16, so it should easy enough for the network to discriminate each case)
-
-    model = BitboardTransformer(**config['model'])
+    model = BitboardTransformer(**config['model'], policy_head=True, policy_depth=10, policy_classes=4096)
     model = model.to(device, memory_format=torch.channels_last) #type: ignore
     print_summary(model)
 
@@ -265,10 +299,16 @@ def main():
             debug=True
             )
 
-    l1 = lambda pred, inputs: F.l1_loss(pred.view(-1), inputs[-1])
-    mse = lambda pred, inputs: F.mse_loss(pred.view(-1), inputs[-1])
-    mare = lambda pred, inputs: mare_loss(pred.view(-1), inputs[-1])
-    smare = lambda pred, inputs: smare_loss(pred.view(-1), inputs[-1])
+    pred_filter = lambda pred: pred[0].view(-1) if isinstance(pred, tuple) else pred.view(-1)
+
+    l1 = lambda pred, inputs: F.l1_loss(pred_filter(pred), inputs[-1])
+    mse = lambda pred, inputs: F.mse_loss(pred_filter(pred), inputs[-1])
+    mare = lambda pred, inputs: mare_loss(pred_filter(pred), inputs[-1])
+    smare = lambda pred, inputs: smare_loss(pred_filter(pred), inputs[-1])
+    policy = lambda pred, inputs: policy_loss(pred[1], inputs[2])
+    top1_acc = lambda pred, inputs: policy_accuracy(pred[1], inputs[2], top_k=1)
+    top3_acc = lambda pred, inputs: policy_accuracy(pred[1], inputs[2], top_k=3)
+    top10_acc = lambda pred, inputs: policy_accuracy(pred[1], inputs[2])
 
     epochs = config['general']['epochs']
     loss_name = config['general']['loss_function']
@@ -294,7 +334,8 @@ def main():
         device=device,
         num_workers=12,
         augmenter=augmenter,
-        val_metrics={'l1': l1, 'mse': mse, 'mare': mare, 'smare': smare},
+        val_metrics={'l1': l1, 'mse': mse, 'mare': mare, 'smare': smare, 'ce': policy,
+                     'acc': top10_acc, 'top1_acc': top1_acc, 'top3_acc': top3_acc},
         callbacks=[
             lr_scheduler,
             ProgressbarCallback(
@@ -306,7 +347,7 @@ def main():
         ],
         filter_fn=partial(filter_scores, filter_threshold) if filter_threshold else None,
     )
-    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/86woan88', 'checkpoint.pt',
+    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/fa3m3aud', 'checkpoint.pt',
     #                                        device=device, replace=True)
     # training_loop.load_state(model, checkpoint)
     # lr_scheduler.reset()
