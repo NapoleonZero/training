@@ -9,6 +9,7 @@ from torch.utils.data import Dataset
 from pathos.multiprocessing import ProcessingPool as Pool
 from potatorch.datasets.utils import split_dataset
 from datasets.BitboardDecoder import BitboardDecoder
+import torch.nn.functional as F
 
 def string_to_matrix(bitboard):
     return np.array([b for b in bitboard], dtype=np.uint8).reshape(8,8).copy()
@@ -20,6 +21,7 @@ def uint_to_bits(x, bits = 64):
     return np.unpackbits(np.array([x], dtype='>u8').view(np.uint8))
 
 # TODO: create OversampleDataset wrapper class
+# TODO: remove old loading and preprocessing logic
 class BitboardDataset(Dataset):
     """ Represents a generic Dataset of games
     """
@@ -31,6 +33,8 @@ class BitboardDataset(Dataset):
                  preload=True,
                  preload_chunks=True,
                  low_memory=False,
+                 pv_depth=0,
+                 max_moves=4096, # from-to encoding: 64 x 64 possible moves
                  fraction=1.0,
                  transform=None,
                  target_transform=None,
@@ -45,6 +49,8 @@ class BitboardDataset(Dataset):
         self.glob = glob
         self.preload = preload
         self.preload_chunks = preload_chunks
+        self.pv_depth = pv_depth
+        self.max_moves = max_moves
         self.fraction = fraction
         self.transform = transform
         self.target_transform = target_transform
@@ -112,9 +118,10 @@ class BitboardDataset(Dataset):
     def worker_init_fn(self, id, *args):
         self._allocate_decoder()
 
+    # TODO: why not use mmap?
     def _allocate_decoder(self):
         if self.low_memory:
-            self.decoder = BitboardDecoder(self.path, memory_mapped=False)
+            self.decoder = BitboardDecoder(self.path, memory_mapped=True, pv_depth=self.pv_depth)
         
     def _fraction(self, ds):
         """ Return `self.fraction`% of the given dataset """
@@ -256,11 +263,16 @@ class BitboardDataset(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, idx):
+        pv = np.array([])
         if self.low_memory:
             entry = self.decoder.read_line(idx)
-            target = np.array(entry[-1])
-            features = np.array(entry[:-4], dtype=np.uint64)
-            aux = np.array(entry[-4:-1])
+            #'QQQQQQQQQQQQbbbe' + self.pv_depth * 'H'
+            features = np.array(entry[:12], dtype=np.uint64)
+            aux = np.array(entry[12:15])
+            target = np.array(entry[15])
+            if self.pv_depth > 0:
+                pv = np.array(entry[16:16 + self.pv_depth], dtype=np.uint64)
+
         elif not self.preload:
             entry = self._preprocess_row(self.dataset.iloc[idx])
             target = entry.iloc[-1]
@@ -290,9 +302,6 @@ class BitboardDataset(Dataset):
             print(f"Error: {e}")
             exit(1)
 
-        # TODO: test this
-        # target = torch.from_numpy(target).float()
-
         if self.transform:
             (features, aux) = self.transform(features, aux)
 
@@ -302,10 +311,14 @@ class BitboardDataset(Dataset):
         features = torch.from_numpy(features).float()
         aux = torch.from_numpy(aux).float()
 
+        # We return pv moves as integral indices for memory efficiency; if needed, nn.CrossEntropyLoss can
+        # one-hot encode them internally
+        pv = torch.from_numpy(pv).long() 
+
         if self.augment_rate > 0.0 and np.random.uniform() <= self.augment_rate:
             features = features + torch.randn(12, 8, 8)
 
-        return features, aux, target
+        return features, aux, pv, target
 
     def _drop_oversample_indices(self, indices):
         """ Drop indices that correspond to oversampled items """
