@@ -130,7 +130,6 @@ dmypy.json
 .pyre/
 artifacts/
 checkpoint.pt
-potatorch/
 src/wandb/
 wandb/
 

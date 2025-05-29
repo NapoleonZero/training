@@ -1,3 +1,6 @@
 [submodule "datasets"]
 	path = datasets
 	url = git@github.com:NapoleonZero/datasets.git
+[submodule "potatorch"]
+	path = potatorch
+	url = https://github.com/crybot/potatorch
