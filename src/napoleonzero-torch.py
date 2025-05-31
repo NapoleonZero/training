@@ -12,12 +12,13 @@ from models import BitboardTransformer
 from potatorch.training import TrainingLoop
 from potatorch.callbacks import ProgressbarCallback, LRSchedulerCallback
 from potatorch.callbacks import WandbCallback, CheckpointCallback, SanityCheckCallback
-from datasets.BitboardDataset import string_to_matrix
 from losses import MSLELoss, WDLLoss, WMSELoss, MARELoss, SMARELoss, MixedPolicyLoss
 from losses import smare_loss, mare_loss, policy_loss, policy_accuracy
 from functools import partial
 from typing import List, Callable
-from potatorch.utils import download_wandb_checkpoint, download_wandb_config
+from potatorch.utils import download_wandb_checkpoint, download_wandb_config, load_config, set_random_state
+from potatorch.utils import print_summary
+from utils.bitboards import read_positions, rotate_board
 import sys
 
 # TODO: multiplying bitboards planes seems to be helpful (e.g. pawn * 0.1, bishop * 0.2, etc.)
@@ -40,75 +41,21 @@ import sys
 # ISSUE: augmentations such as `rotate_board` are not compatibles by default with action-policy heads, unless you first
 # extract from-to squares from the butterfly index, mirror each square (sq ^ 56) and then recombine the two bytes.
 
-
-def set_random_state(seed):
-    torch.manual_seed(seed)
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.backends.cudnn.benchmark = False
-    # torch.use_deterministic_algorithms(True)
-
-def params_count(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-def print_summary(model):
-    print(model)
-    print(f'Number of parameters: {params_count(model)}')
-
-# TODO: move these utility functions to a separate file
-def read_bitboards(csv):
-  """ csv: comma separated set of bitboards.
-           Each element of the set is a string of 64 binary values.
-
-      returns: np.array of shape 12x8x8
-  """
-  bitboards = csv.split(',')
-  return np.array([string_to_matrix(b) for b in bitboards])
-
-def read_positions(file: str):
-    """ Read positions from `file` and return the following information:
-        - descriptors (either fen of description string) list
-        - positions (bitboards) tensor
-        - auxiliary inputs (side, ep square, castling) tensor
-        - scores tensor
-    """
-    dtypes: dict = {
-            0: 'string',                # fen position string
-            1: 'string', 2: 'string',   # bitboards
-            3: 'string', 4: 'string',   # bitboards
-            5: 'string', 6: 'string',   # bitboards
-            7: 'string', 8: 'string',   # bitboards
-            9: 'string', 10: 'string',  # bitboards
-            11: 'string', 12: 'string', # bitboards
-            13: 'uint8',                # side to move: 0 = white, 1 = black
-            14: 'uint8',                # enpassant square: 0-63, 65 is none 
-            15: 'uint8',                # castling status: integer [0000 b4 b3 b2 b1] b1 = K, b2 = Q, b3 = k, b4 = q
-            16: 'int32'                 # score: integer value (mate = 2^15 - 1)
-            }
-    df = pd.read_csv(file, header=None, dtype=dtypes)
-
-    fens = df.iloc[:, 0].values
-    bitboards = df.iloc[:, 1:13].values
-    aux = df.iloc[:, 13:-1].values
-    score = df.iloc[:, -1:].values
-
-    x = [(np.array([[string_to_matrix(b) for b in bs]])) for bs in bitboards]
-    aux = [(np.array([v])) for v in aux]
-    score = [(np.array([v / 100.0])) for v in score]
-
-    return fens, x, aux, score
-
-def rescale_bitboards(bs):
-    """ Scale each bitboard by [0.1, 0.2, ..., 0.6] relatively for both colors """
-    return np.array([bs[i] * (i%6 + 1) / 10 for i in np.arange(12)])
-
 def filter_scores(filter_threshold: int, data: tuple) -> bool:
     """ Filter scores based on a given cutoff threshold """
     return abs(data[-1]) < filter_threshold
 
-def load_config(path: str) -> dict:
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
+def map_augmentations(augmentations: List[str]) -> List[Callable]:
+    transformations = []
+    for fname in augmentations:
+        if fname == 'rotation':
+            transformations.append(rotate_board)
+        else:
+            raise Exception('Undefined augmentation')
+    return transformations
+
+def evaluate(training_loop):
+    print(f'Test dataset evaluation: {training_loop.evaluate(metrics=training_loop.val_metrics)}')
 
 # TODO: Weight MSE by number of pieces on the board: x.sum() should reduce the tensor to the total number of pieces
 # This should prioritize early game (tactical) positions.
@@ -192,41 +139,6 @@ class CustomTrainingLoop(TrainingLoop):
             loss = loss_fn(score.view(-1), ys)
 
         return loss
-
-def rotate_board(bitboards, aux, score):
-    """ Rotate the board 180 degrees, switching the colors of pieces, side to move, castling status and en-passant
-    square """
-    # Bitboards are shaped 12x8x8
-    wpieces = bitboards[:6]
-    bpieces = bitboards[6:]
-
-    # Side to move is 0 if it's white's turn, 1 otherwise
-    stm = (int(aux[0]) + 1) % 2                         # switch side to move
-
-    # 0-63 for valid squares, 65 for invalid ones (64 is unused)
-    ep0 = int(aux[1])
-    ep = 63 - ep0 if 0 <= ep0 < 64 else ep0    # rotate en passant square
-
-    if ep0 < 0:
-        print(bitboards)
-        print(aux)
-        print(score)
-        raise Exception('Invalid enpassant square')
-
-    # Castling is encoded in the 4 least significant bits of a byte:
-    # b4 b3 b2 b1 -> We swap b4 with b2 and b3 with b1 (0xC = 1100, 0x3 = 0011).
-    castle = (int(aux[2]) & 0xC) >> 2 | (int(aux[2]) & 0x3) << 2 # swap castling white <-> castling black
-
-    return torch.cat([bpieces, wpieces], dim=0).flip(-2, -1), torch.tensor([stm, ep, castle]).float(), -score
-
-def map_augmentations(augmentations: List[str]) -> List[Callable]:
-    transformations = []
-    for fname in augmentations:
-        if fname == 'rotation':
-            transformations.append(rotate_board)
-        else:
-            raise Exception('Undefined augmentation')
-    return transformations
 
 def main(args):
     torch.backends.cuda.matmul.allow_tf32 = True # TODO: why?
@@ -367,9 +279,6 @@ def main(args):
 
     remaining_epochs = epochs - training_loop.get_state('epoch', 1) + 1
     model = training_loop.run(epochs=remaining_epochs)
-
-def evaluate(training_loop):
-    print(f'Test dataset evaluation: {training_loop.evaluate(metrics=training_loop.val_metrics)}')
 
 def parse_args():
     parser = argparse.ArgumentParser()

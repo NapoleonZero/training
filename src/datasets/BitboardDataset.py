@@ -9,16 +9,8 @@ from torch.utils.data import Dataset
 from pathos.multiprocessing import ProcessingPool as Pool
 from potatorch.datasets.utils import split_dataset
 from datasets.BitboardDecoder import BitboardDecoder
+from bitboards.utils import string_to_array, uint_to_bits
 import torch.nn.functional as F
-
-def string_to_matrix(bitboard):
-    return np.array([b for b in bitboard], dtype=np.uint8).reshape(8,8).copy()
-
-def string_to_array(bitboard):
-    return np.array([b for b in bitboard], dtype=np.uint8)
-
-def uint_to_bits(x, bits = 64):
-    return np.unpackbits(np.array([x], dtype='>u8').view(np.uint8))
 
 # TODO: create OversampleDataset wrapper class
 # TODO: remove old loading and preprocessing logic

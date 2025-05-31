@@ -3,20 +3,8 @@ import torch
 import os
 import torch.onnx
 
-def download_wandb_checkpoint(run_path, filename, device='cuda'):
-    api = wandb.Api()
-
-    run = api.run(run_path)
-    run.file(filename).download(replace=True)
-    checkpoint = torch.load(filename, map_location=torch.device(device))
-    return checkpoint
-
-def save_wandb_file(path):
-    wandb.save(path, base_path=os.path.dirname(path))
-
 def export_onnx(model):
     # --- Configuration ---
-    MODEL_NAME = "resnet18" # Or any other model like "mobilenet_v2", etc.
     OUTPUT_ONNX_FILE = "model.onnx"
     # Define input shape (Batch Size, Channels, Height, Width)
     # Use a fixed batch size (e.g., 1) for the dummy input if your C++ code assumes it
