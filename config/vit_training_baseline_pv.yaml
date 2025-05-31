@@ -45,6 +45,9 @@ model:
   channel_pos_encoding: True
   learned_pos_encoding: True
   material_head: False
+  policy_head: True
+  policy_depth: 10
+  policy_classes: 4096
 
 training:
   train_p: 0.995

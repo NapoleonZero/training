@@ -7,7 +7,6 @@ def policy_accuracy(pred_logits: Tensor, target_action: Tensor, top_k: int = -1)
     preds = torch.argmax(pred_logits, dim=-1)
     correct = (preds[:, :top_k] == target_action[:, :top_k]).float()
     return correct.mean()
-    # return correct.mean(dim=0)
 
 def policy_loss(pred_logits: Tensor, target_action: Tensor, weight: float | list[float] = 1.0) -> Tensor | Literal[0]:
     if isinstance(weight, float):

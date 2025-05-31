@@ -50,7 +50,7 @@ def export_onnx(model):
             opset_version=OPSET_VERSION, # ONNX version to export the model to
             do_constant_folding=True,  # Execute constant folding for optimization
             input_names=["bitboards", "aux"],  # Model's input names
-            output_names=["score"], # Model's output names
+            output_names=["score", "policy"], # Model's output names
             # dynamic_axes={'input' : {0 : 'batch_size'},    # Variable length axes
             #               'output' : {0 : 'batch_size'}}  # Uncomment if batch size needs to be dynamic
         )

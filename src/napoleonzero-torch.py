@@ -5,6 +5,7 @@ import pandas as pd
 import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
+import argparse
 
 from datasets import BitboardDataset, AugmentedDataset
 from models import BitboardTransformer 
@@ -16,7 +17,7 @@ from losses import MSLELoss, WDLLoss, WMSELoss, MARELoss, SMARELoss, MixedPolicy
 from losses import smare_loss, mare_loss, policy_loss, policy_accuracy
 from functools import partial
 from typing import List, Callable
-from potatorch.utils import download_wandb_checkpoint
+from potatorch.utils import download_wandb_checkpoint, download_wandb_config
 import sys
 
 # TODO: multiplying bitboards planes seems to be helpful (e.g. pawn * 0.1, bishop * 0.2, etc.)
@@ -227,9 +228,24 @@ def map_augmentations(augmentations: List[str]) -> List[Callable]:
             raise Exception('Undefined augmentation')
     return transformations
 
-def main():
-    # config = load_config(f'{sys.path[0]}/../config/vit_training_medium.yaml')
-    config = load_config(f'{sys.path[0]}/../config/vit_training_baseline_pv.yaml')
+def main(args):
+    torch.backends.cuda.matmul.allow_tf32 = True # TODO: why?
+    config = None
+    checkpoint = None
+
+    if args.resume:
+        run_path = f'napoleon-zero-pytorch/{args.resume}'
+        config = download_wandb_config(run_path, 'config.yaml', strip_values=True, replace=True)
+        checkpoint = download_wandb_checkpoint(
+            run_path,
+            'checkpoint.pt',
+            device=config['general']['device'],
+            replace=True
+        )
+    if args.config:
+        config = load_config(args.config)
+
+    assert config
 
     SEED = config['general']['seed']
     DRIVE_PATH = f'{sys.path[0]}/../datasets/datasets'
@@ -240,8 +256,6 @@ def main():
     # Get cpu or gpu device for training.
     device: str = config['general']['device']
     print(f"Using {device} device")
-
-    torch.backends.cuda.matmul.allow_tf32 = True # TODO: why?
 
     (check_fen, check_x, check_aux, check_score) = read_positions(f'{sys.path[0]}/sanity_check.csv')
 
@@ -269,7 +283,7 @@ def main():
                 )
     config['dataset']['size'] = len(dataset)
 
-    model = BitboardTransformer(**config['model'], policy_head=True, policy_depth=10, policy_classes=4096)
+    model = BitboardTransformer(**config['model'])
     model = model.to(device, memory_format=torch.channels_last) #type: ignore
     print_summary(model)
 
@@ -347,16 +361,27 @@ def main():
         ],
         filter_fn=partial(filter_scores, filter_threshold) if filter_threshold else None,
     )
-    # checkpoint = download_wandb_checkpoint('marco-pampaloni/napoleon-zero-pytorch/fa3m3aud', 'checkpoint.pt',
-    #                                        device=device, replace=True)
-    # training_loop.load_state(model, checkpoint)
-    # lr_scheduler.reset()
-    model = training_loop.run(epochs=epochs)
+
+    if args.resume:
+        training_loop.load_state(model, checkpoint)
+
+    remaining_epochs = epochs - training_loop.get_state('epoch', 1) + 1
+    model = training_loop.run(epochs=remaining_epochs)
 
 def evaluate(training_loop):
     print(f'Test dataset evaluation: {training_loop.evaluate(metrics=training_loop.val_metrics)}')
-    # print('Sanity check positions evaluation:')
-    # sanity_check_callback.on_train_epoch_end(training_loop)
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str, help='Absolute path to the YAML configuration file')
+    parser.add_argument('--resume', type=str, help='Wandb run id to resume. If --config was not set, the previous \
+                                                    configuration for that run will be used.')
+    args =  parser.parse_args()
+
+    if not args.config and not args.resume:
+        parser.error('At least one of --config or --resume must be set.')
+
+    return args
 
 if __name__ == '__main__':
-    main()
+    main(parse_args())

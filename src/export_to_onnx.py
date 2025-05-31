@@ -12,7 +12,7 @@ def parse_args():
     return parser.parse_args()
 
 def make_model(config: dict, device: str = 'cpu'):
-    return BitboardTransformer(**config['model']).to(device, memory_format=torch.channels_last)
+    return BitboardTransformer(**config['model']).to(device, memory_format=torch.channels_last) #type: ignore
 
 def main(args):
     run_id = args.run_id
